@@ -1,0 +1,224 @@
+{
+  "version": 1,
+  "generator": "fieldlens.synth",
+  "config": {
+    "size": 384,
+    "clean_prob": 0.15,
+    "max_attempts": 24,
+    "seed": 0
+  },
+  "count": 8,
+  "entries": [
+    {
+      "file": "images/plate_0000_seed7400.png",
+      "seed": 7400,
+      "defects": [
+        {
+          "id": 0,
+          "type": "dent",
+          "bbox": [
+            150,
+            123,
+            60,
+            61
+          ],
+          "area_px": 2822,
+          "contrast": 7.59
+        }
+      ],
+      "noise_sigma": 1.31
+    },
+    {
+      "file": "images/plate_0001_seed7401.png",
+      "seed": 7401,
+      "defects": [
+        {
+          "id": 0,
+          "type": "dent",
+          "bbox": [
+            241,
+            256,
+            57,
+            47
+          ],
+          "area_px": 1935,
+          "contrast": 8.49
+        },
+        {
+          "id": 1,
+          "type": "dent",
+          "bbox": [
+            91,
+            121,
+            44,
+            36
+          ],
+          "area_px": 1162,
+          "contrast": 10.36
+        }
+      ],
+      "noise_sigma": 1.84
+    },
+    {
+      "file": "images/plate_0002_seed7402.png",
+      "seed": 7402,
+      "defects": [
+        {
+          "id": 0,
+          "type": "scratch",
+          "bbox": [
+            261,
+            276,
+            52,
+            47
+          ],
+          "area_px": 286,
+          "contrast": 14.17
+        },
+        {
+          "id": 1,
+          "type": "stain",
+          "bbox": [
+            128,
+            107,
+            39,
+            40
+          ],
+          "area_px": 976,
+          "contrast": 9.86
+        }
+      ],
+      "noise_sigma": 2.96
+    },
+    {
+      "file": "images/plate_0003_seed7403.png",
+      "seed": 7403,
+      "defects": [
+        {
+          "id": 0,
+          "type": "dent",
+          "bbox": [
+            71,
+            118,
+            61,
+            72
+          ],
+          "area_px": 3148,
+          "contrast": 12.62
+        },
+        {
+          "id": 1,
+          "type": "scratch",
+          "bbox": [
+            179,
+            142,
+            64,
+            125
+          ],
+          "area_px": 450,
+          "contrast": 16.68
+        }
+      ],
+      "noise_sigma": 1.84
+    },
+    {
+      "file": "images/plate_0004_seed7404.png",
+      "seed": 7404,
+      "defects": [
+        {
+          "id": 0,
+          "type": "stain",
+          "bbox": [
+            257,
+            253,
+            38,
+            40
+          ],
+          "area_px": 850,
+          "contrast": 7.78
+        },
+        {
+          "id": 1,
+          "type": "stain",
+          "bbox": [
+            109,
+            182,
+            57,
+            56
+          ],
+          "area_px": 2032,
+          "contrast": 9.24
+        },
+        {
+          "id": 2,
+          "type": "stain",
+          "bbox": [
+            182,
+            251,
+            65,
+            67
+          ],
+          "area_px": 2292,
+          "contrast": 8.34
+        }
+      ],
+      "noise_sigma": 2.73
+    },
+    {
+      "file": "images/plate_0005_seed7405.png",
+      "seed": 7405,
+      "defects": [],
+      "noise_sigma": 2.01
+    },
+    {
+      "file": "images/plate_0006_seed7406.png",
+      "seed": 7406,
+      "defects": [
+        {
+          "id": 0,
+          "type": "scratch",
+          "bbox": [
+            29,
+            255,
+            74,
+            125
+          ],
+          "area_px": 319,
+          "contrast": 17.59
+        },
+        {
+          "id": 1,
+          "type": "scratch",
+          "bbox": [
+            228,
+            218,
+            47,
+            60
+          ],
+          "area_px": 233,
+          "contrast": 16.23
+        }
+      ],
+      "noise_sigma": 2.99
+    },
+    {
+      "file": "images/plate_0007_seed7407.png",
+      "seed": 7407,
+      "defects": [
+        {
+          "id": 0,
+          "type": "dent",
+          "bbox": [
+            151,
+            78,
+            39,
+            37
+          ],
+          "area_px": 1068,
+          "contrast": 8.9
+        }
+      ],
+      "noise_sigma": 1.75
+    }
+  ]
+}
