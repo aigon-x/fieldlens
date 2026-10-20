@@ -482,3 +482,11 @@ Ablation: making the handler `async` again turns both red.
 - Przeglądarka Chromium 1280×900: przycisk „Inspect a sample plate" → „1 region flagged", wada stain
   (x151 y121 w59 h62), **0 błędów konsoli**.
 - Function URL zwracał 403 mimo AuthType=NONE; API Gateway omija ten problem i daje stały adres.
+
+## UI: sekwencja i interakcje (2026-10-20, v1.4.0)
+- Podgląd zdjęcia pojawia się **przed** fetch, więc skan jest widoczny w trakcie analizy.
+- Po odpowiedzi: ramki ujawniane 220 ms (alpha + stroke-dash), dopiero potem licznik i wiersze.
+- Wiersz ↔ ramka: hover/focus/klik podświetla odpowiadający box; klawisze 1–9 wybierają, Esc czyści.
+- Wiersze mają `tabindex=0` i `aria-selected`; fokus widoczny.
+- Zero wad: jawny PASS z progiem „no defects detected under current thresholds (z ≥ 3.8)".
+- Nagłówek mobile ≤600 px: topbar w dwóch wierszach, status bez łamania.
