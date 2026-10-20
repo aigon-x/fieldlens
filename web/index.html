@@ -211,6 +211,7 @@
           <strong>Drop a plate image here</strong>
           <span id="dropHint">Drag &amp; drop or <kbd>Enter</kbd> to browse.<br>Paste with <kbd>Ctrl</kbd>+<kbd>V</kbd>.</span>
           <span class="formats">single frame · up to 12 MB</span>
+          <button class="btn" id="sampleBtn" type="button" hidden>Inspect a sample plate</button>
         </div>
 
         <div class="board" id="board">
@@ -280,7 +281,7 @@
     apiChip: byId("apiChip"), apiChipText: byId("apiChipText"),
     countValue: byId("countValue"), countLabel: byId("countLabel"),
     summaryText: byId("summaryText"), defectList: byId("defectList"),
-    emptyNote: byId("emptyNote"), engineHint: byId("engineHint"),
+    emptyNote: byId("emptyNote"), engineHint: byId("engineHint"), sampleBtn: byId("sampleBtn"),
   };
   const MAX_BYTES = 12 * 1024 * 1024;
   const COLORS = { scratch: "#eb3a3a", dent: "#ffaa00", stain: "#c85acd" };
@@ -445,6 +446,32 @@
     if (count === 0) el.emptyNote.textContent = "Clean plate: no scratch, dent or stain passed the filters.";
     setState("result");
   }
+  async function loadSample() {
+    if (busy) return;
+    try {
+      const list = await fetch("/api/samples", { headers: { Accept: "application/json" } });
+      const { samples } = await list.json();
+      const name = samples && samples[0];
+      if (!name) return;
+      const response = await fetch(`/api/sample/${encodeURIComponent(name)}`);
+      if (!response.ok) throw new Error(`Sample unavailable (HTTP ${response.status}).`);
+      const blob = await response.blob();
+      await inspect(new File([blob], name, { type: "image/png" }));
+    } catch (err) {
+      showError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function offerSample() {
+    try {
+      const response = await fetch("/api/samples", { headers: { Accept: "application/json" } });
+      const { samples } = await response.json();
+      el.sampleBtn.hidden = !(samples && samples.length);
+    } catch {
+      el.sampleBtn.hidden = true;
+    }
+  }
+
   async function checkHealth() {
     try {
       const response = await fetch("/api/health", { headers: { Accept: "application/json" } });
@@ -493,11 +520,16 @@
       inspect(file);
     }
   });
+  el.sampleBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    loadSample();
+  });
   el.resetBtn.addEventListener("click", reset);
   el.retryBtn.addEventListener("click", reset);
   window.addEventListener("dragover", (event) => event.preventDefault());
   window.addEventListener("drop", (event) => event.preventDefault());
   checkHealth();
+  offerSample();
 
 })();
 </script>

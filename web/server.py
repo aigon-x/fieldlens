@@ -15,7 +15,14 @@ from fieldlens.imageio import ImageDecodeError, decode_image, encode_png
 
 WEB_DIR = Path(__file__).resolve().parent
 INDEX_HTML = WEB_DIR / "index.html"
+SAMPLES_DIR = WEB_DIR.parent / "samples" / "images"
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+
+
+def _sample_names() -> list[str]:
+    if not SAMPLES_DIR.is_dir():
+        return []
+    return sorted(path.name for path in SAMPLES_DIR.glob("*.png") if path.is_file())
 
 
 def create_app() -> FastAPI:
@@ -30,6 +37,18 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__, "engine": "opencv-matched-filter"}
+
+    @app.get("/api/samples")
+    def samples() -> dict:
+        """Bundled plates, so a first visit has something to inspect."""
+        return {"samples": _sample_names()}
+
+    @app.get("/api/sample/{name}")
+    def sample(name: str) -> FileResponse:
+        # Membership in the directory listing, never a path built from the request.
+        if name not in _sample_names():
+            raise HTTPException(status_code=404, detail="unknown sample")
+        return FileResponse(SAMPLES_DIR / name, media_type="image/png")
 
     @app.post("/api/inspect")
     async def inspect(file: UploadFile | None = File(default=None)) -> JSONResponse:

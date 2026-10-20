@@ -182,7 +182,7 @@ python3 -m fieldlens inspect samples/images/plate_0003_seed7403.png --out-dir ou
 # evaluation, exit code 1 below F1 0.80
 python3 -m fieldlens benchmark --n 40
 
-# service
+# service + web inspector (the page offers "Inspect a sample plate" — no file needed)
 python3 -m fieldlens serve --port 8099
 curl -X POST --data-binary @samples/images/plate_0003_seed7403.png \
      -H 'Content-Type: image/png' http://127.0.0.1:8099/inspect

@@ -68,15 +68,16 @@ python3 -m fieldlens inspect samples/images/plate_0003_seed7403.png --json --no-
 # evaluation on 40 generated plates; exit code 1 if lenient F1 < 0.80
 python3 -m fieldlens benchmark --n 40
 
-# HTTP API
+# HTTP API + web inspector
 python3 -m fieldlens serve --port 8099
+# open http://127.0.0.1:8099/ and press "Inspect a sample plate" — no file needed
 curl -X POST --data-binary @samples/images/plate_0003_seed7403.png \
      -H 'Content-Type: image/png' http://127.0.0.1:8099/inspect
 
 # regenerate the synthetic dataset (images + ground_truth.json)
 python3 -m fieldlens synth --out samples --n 8 --seed 7400
 
-# tests (49, ~21 s)
+# tests (58, ~40 s)
 python3 -m pytest tests -q
 ```
 

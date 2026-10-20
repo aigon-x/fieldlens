@@ -358,9 +358,20 @@ $ python3 -m uvicorn web.server:app --host 127.0.0.1 --port 8731
 $ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8731/    # 200
 $ curl -s http://127.0.0.1:8731/api/health
 {"status":"ok","version":"1.0.0","engine":"opencv-matched-filter"}
+$ curl -s http://127.0.0.1:8731/api/samples | head -c 60
+{"samples":["plate_0000_seed7400.png","plate_0001_seed7401.png"
 $ # multipart POST of samples/images/plate_0000_seed7400.png
 POST /api/inspect -> 200 | count: 1 | types: ['scratch'] | annotated PNG: 292988 b64 chars | 311.34 ms
 ```
+
+A first visit has no file, so the page offers the four bundled plates:
+`GET /api/samples` lists them and `GET /api/sample/<name>` serves one (the name is
+matched against the directory listing, never joined into a path — an unknown name is
+404). The button loads the first plate through the same `/api/inspect` path.
+
+Browser check (Playwright 1.62, 1280x900): page load → `#sampleBtn` visible → click →
+`#board.is-visible`, summary "1 region flagged on this plate.", 1 item in `#defectList`,
+0 console errors, screenshot retained for the submission.
 
 `POST /api/inspect` returns `{"defects":[{"type","score","box":[x,y,w,h]}],"count":N,
 "annotated_png_base64":"..."}` plus `image_size`, `elapsed_ms` and `version`. Garbage bytes

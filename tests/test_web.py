@@ -19,6 +19,7 @@ def test_index_serves_the_shell() -> None:
     assert '<meta name="viewport"' in resp.text
     assert 'id="dropzone"' in resp.text
     assert 'aria-live="polite"' in resp.text
+    assert 'id="sampleBtn"' in resp.text
 
 
 def test_health_reports_the_engine() -> None:
@@ -57,3 +58,25 @@ def test_inspect_requires_a_file_field() -> None:
     resp = client.post("/api/inspect", files={"note": (None, "x")})
     assert resp.status_code == 400
     assert "file" in resp.json()["detail"]
+
+
+def test_samples_endpoint_lists_bundled_plates() -> None:
+    resp = client.get("/api/samples")
+    assert resp.status_code == 200
+    samples = resp.json()["samples"]
+    assert samples, "the repository ships sample plates"
+    assert all(name.endswith(".png") for name in samples)
+
+
+def test_sample_endpoint_serves_a_real_png() -> None:
+    name = client.get("/api/samples").json()["samples"][0]
+    resp = client.get(f"/api/sample/{name}")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_sample_endpoint_refuses_anything_outside_the_directory() -> None:
+    """The name is matched against the listing, never joined into a path."""
+    for name in ("..%2F..%2FREADME.md", "missing.png", "%2E%2E%2Fserver.py"):
+        assert client.get(f"/api/sample/{name}").status_code == 404
