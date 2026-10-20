@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -38,6 +39,36 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__, "engine": "opencv-matched-filter"}
+
+    @app.post("/api/report")
+    def report(file: UploadFile | None = File(default=None)) -> JSONResponse:
+        """Downloadable inspection report: findings, input quality and run metadata."""
+        if file is None:
+            raise HTTPException(status_code=400, detail="multipart field 'file' is required")
+        data = file.file.read()
+        if not data or len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail="empty or oversized upload")
+        try:
+            image = decode_image(data)
+        except ImageDecodeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        result = inspect_array(image, DEFAULT_PARAMS)
+        quality = assess(image)
+        payload = {
+            "schema": "fieldlens.report/1",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "source": {"filename": file.filename, "bytes": len(data)},
+            "image_size": list(result.image_size),
+            "elapsed_ms": round(float(result.elapsed_ms), 2),
+            "input_quality": quality.as_dict(),
+            "count": len(result.defects),
+            "defects": [
+                {"type": d.kind, "score": round(float(d.score), 3), "box": list(d.bbox)}
+                for d in result.defects
+            ],
+        }
+        headers = {"Content-Disposition": 'attachment; filename="fieldlens-report.json"'}
+        return JSONResponse(payload, headers=headers)
 
     @app.get("/api/samples")
     def samples() -> dict:

@@ -170,6 +170,38 @@
     *,*::before,*::after{animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important}
     .spinner{border-top-color:var(--accent); border-right-color:var(--accent)}
   }
+/* ── micro-interactions ───────────────────────────────────────────── */
+.btn { transition: transform 90ms ease, background-color 180ms ease, border-color 180ms ease,
+                    box-shadow 180ms ease, color 180ms ease; }
+.btn:hover { border-color: var(--line-strong, #2b3542); }
+.btn:active { transform: translateY(1px) scale(.985); }
+.btn:focus-visible { outline: 2px solid var(--accent, #5aa2ff); outline-offset: 2px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; transform: none; }
+.panel { transition: transform 180ms cubic-bezier(.2,.7,.2,1), border-color 180ms ease; }
+.panel:hover { transform: translateY(-1px); }
+.defect { animation: rowIn 260ms cubic-bezier(.2,.7,.2,1) both;
+          animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.count b.pop { animation: pop 420ms cubic-bezier(.2,.7,.2,1); }
+@keyframes pop { 0% { opacity: .25; transform: scale(.92); } 60% { transform: scale(1.05); }
+                 100% { opacity: 1; transform: scale(1); } }
+.board.scanning::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, transparent 0%, rgba(90,162,255,.16) 48%,
+              rgba(90,162,255,.5) 50%, rgba(90,162,255,.16) 52%, transparent 100%);
+  animation: scan 900ms cubic-bezier(.4,0,.2,1) infinite; }
+@keyframes scan { from { transform: translateY(-100%); } to { transform: translateY(100%); } }
+.warn { margin: 0 0 14px; padding: 12px 14px; border-radius: 10px; font-size: 13px;
+  line-height: 1.5; color: #ffd9d9; background: rgba(255,107,107,.1);
+  border: 1px solid rgba(255,107,107,.35); }
+.toast { position: fixed; right: 20px; bottom: 20px; padding: 12px 16px; border-radius: 10px;
+  background: #12171f; border: 1px solid #2b3542; color: #e9ecf0; font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.45); opacity: 0; transform: translateY(8px);
+  transition: opacity 180ms ease, transform 180ms ease; pointer-events: none; z-index: 40; }
+.toast.show { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; }
+}
 </style>
 </head>
 <body>
@@ -222,6 +254,7 @@
           <div class="stage-tools">
             <span class="meta" id="meta"></span>
             <button class="btn" id="resetBtn" type="button">New image</button>
+            <button class="btn" id="exportBtn" type="button" disabled>Export JSON</button>
           </div>
         </div>
 
@@ -259,6 +292,7 @@
           <span><i style="background:#c85acd"></i>stain</span>
         </div>
       </div>
+      <div class="warn" id="domainWarn" role="status" hidden></div>
       <ul class="defects" id="defectList" aria-label="Detected defects"></ul>
       <div class="empty-note" id="emptyNote">Findings appear here after an inspection.</div>
     </aside>
@@ -268,6 +302,7 @@
     <span>Processed on this host · nothing is stored. Endpoint <code>POST /api/inspect</code>.</span>
     <span>OpenCV matched-filter pipeline · boxes are (x, y, w, h) px</span>
   </footer>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
 <input id="fileInput" type="file" accept="image/png,image/jpeg,image/bmp,image/tiff" hidden>
 <script>
@@ -283,6 +318,7 @@
     countValue: byId("countValue"), countLabel: byId("countLabel"),
     summaryText: byId("summaryText"), defectList: byId("defectList"),
     emptyNote: byId("emptyNote"), engineHint: byId("engineHint"), sampleBtn: byId("sampleBtn"),
+    exportBtn: byId("exportBtn"), domainWarn: byId("domainWarn"), toast: byId("toast"),
   };
   const MAX_BYTES = 12 * 1024 * 1024;
   const COLORS = { scratch: "#eb3a3a", dent: "#ffaa00", stain: "#c85acd" };
@@ -296,6 +332,7 @@
     el.board.classList.toggle("is-visible", name === "result");
     el.loading.classList.toggle("is-visible", name === "loading");
     el.error.classList.toggle("is-visible", name === "error");
+    el.board.classList.toggle("scanning", name === "loading");
   }
 
   function reset() {
@@ -309,6 +346,9 @@
     el.emptyNote.textContent = IDLE_NOTE;
     el.meta.textContent = "";
     el.engineHint.textContent = "idle";
+    el.exportBtn.disabled = true;
+    el.domainWarn.hidden = true;
+    lastFile = null;
     el.errorMsg.textContent = "";
     el.fileInput.value = "";
     el.canvas.width = 0;
@@ -337,11 +377,16 @@
     el.emptyNote.textContent = "No findings \u2014 the last inspection did not complete.";
   }
 
+  let lastFile = null;
+
   async function inspect(file) {
     if (busy) return;
     const problem = validate(file);
     if (problem) { showError(problem); return; }
     busy = true;
+    lastFile = file;
+    el.exportBtn.disabled = true;
+    el.domainWarn.hidden = true;
     el.loadingFile.textContent = `Running the matched-filter bank on ${file.name}.`;
     el.summaryText.textContent = `Analysing ${file.name}\u2026`;
     setState("loading");
@@ -366,6 +411,38 @@
       img.onerror = () => reject(new Error("The browser could not decode this image."));
       img.src = url;
     });
+  }
+
+  function showToast(message) {
+    el.toast.textContent = message;
+    el.toast.classList.add("show");
+    window.clearTimeout(showToast._t);
+    showToast._t = window.setTimeout(() => el.toast.classList.remove("show"), 2200);
+  }
+
+  async function exportReport() {
+    if (!lastFile) return;
+    el.exportBtn.disabled = true;
+    try {
+      const body = new FormData();
+      body.append("file", lastFile, lastFile.name || "upload.png");
+      const response = await fetch("/api/report", { method: "POST", body });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "fieldlens-report.json";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showToast("Report exported as JSON");
+    } catch (err) {
+      showToast(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      el.exportBtn.disabled = false;
+    }
   }
 
   function drawBoxes(ctx, defects, width, height) {
@@ -397,6 +474,7 @@
     defects.forEach((defect, index) => {
       const item = document.createElement("li");
       item.className = "defect";
+      item.style.setProperty("--i", String(index));
       const idx = document.createElement("span");
       idx.className = "idx";
       idx.textContent = String(index + 1).padStart(2, "0");
@@ -443,6 +521,17 @@
     el.meta.textContent = `${img.naturalWidth}\u00d7${img.naturalHeight} px \u00b7 ${elapsed}`;
     el.canvas.setAttribute("aria-label", `Inspected image with ${count} defect${count === 1 ? "" : "s"} outlined`);
     renderList(payload.defects);
+    el.exportBtn.disabled = false;
+    el.countValue.classList.remove("pop");
+    void el.countValue.offsetWidth;
+    el.countValue.classList.add("pop");
+    const quality = payload.input_quality;
+    if (quality && quality.in_domain === false) {
+      el.domainWarn.hidden = false;
+      el.domainWarn.textContent = quality.message || "This input looks outside the calibrated domain.";
+    } else {
+      el.domainWarn.hidden = true;
+    }
     el.emptyNote.hidden = count !== 0;
     if (count === 0) el.emptyNote.textContent = "Clean plate: no scratch, dent or stain passed the filters.";
     setState("result");
@@ -526,6 +615,7 @@
     loadSample();
   });
   el.resetBtn.addEventListener("click", reset);
+  el.exportBtn.addEventListener("click", exportReport);
   el.retryBtn.addEventListener("click", reset);
   window.addEventListener("dragover", (event) => event.preventDefault());
   window.addEventListener("drop", (event) => event.preventDefault());
