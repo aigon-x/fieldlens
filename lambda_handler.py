@@ -13,6 +13,7 @@ returns 501 with an explicit message instead of pretending to succeed.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from typing import Any
 from urllib.parse import unquote_plus
@@ -27,6 +28,16 @@ HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "X-FieldLens-Version": __version__,
 }
+
+
+def idempotency_key(event: dict[str, Any]) -> str:
+    """S3 can redeliver an event; the object version is the identity of that work."""
+    record = (event.get("Records") or [{}])[0]
+    s3 = record.get("s3") or {}
+    obj = s3.get("object") or {}
+    bucket = (s3.get("bucket") or {}).get("name", "")
+    identity = f"{bucket}/{obj.get('key', '')}@{obj.get('eTag', obj.get('versionId', ''))}"
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
 def _response(status: int, payload: dict[str, Any]) -> dict[str, Any]:

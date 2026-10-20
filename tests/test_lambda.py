@@ -77,3 +77,11 @@ def test_s3_event_reads_object_with_stubbed_client(monkeypatch, dent_sample) -> 
 def test_s3_event_without_key_returns_400() -> None:
     resp = handler({"Records": [{"s3": {"bucket": {"name": "b"}}}]}, None)
     assert resp["statusCode"] == 400
+
+
+def test_idempotency_key_is_stable_for_same_object():
+    from lambda_handler import idempotency_key
+    event = {"Records": [{"s3": {"bucket": {"name": "b"}, "object": {"key": "a.png", "eTag": "x"}}}]}
+    assert idempotency_key(event) == idempotency_key(event)
+    other = {"Records": [{"s3": {"bucket": {"name": "b"}, "object": {"key": "a.png", "eTag": "y"}}}]}
+    assert idempotency_key(event) != idempotency_key(other)
