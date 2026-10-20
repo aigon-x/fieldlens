@@ -477,3 +477,10 @@ Ablation: making the handler `async` again turns both red.
 - Function URL: `https://h2mihukfj7v2qzbsevyul5w3fe0sipqx.lambda-url.eu-north-1.on.aws/`
   (`AuthType=NONE`, polityka `lambda:InvokeFunctionUrl` dla `*`) — na chwilę obecną zwraca **403**;
   publiczne demo działa pod adresem tunelu: `https://lets-parish-egg-bingo.trycloudflare.com`.
+
+## Publiczny adres AWS (2026-10-20)
+- API Gateway HTTP API (`873vdlij6g`, region eu-north-1) → Lambda `fieldlens` (AWS_PROXY, payload 2.0).
+- **Demo: https://873vdlij6g.execute-api.eu-north-1.amazonaws.com/** — `GET /` 200, `GET /api/samples` 200, `GET /api/sample/plate_0000_seed7400.png` 200 (0,34 s).
+- Przeglądarka Chromium 1280×900: przycisk „Inspect a sample plate" → „1 region flagged", wada stain
+  (x151 y121 w59 h62), **0 błędów konsoli**.
+- Function URL zwracał 403 mimo AuthType=NONE; API Gateway omija ten problem i daje stały adres.
