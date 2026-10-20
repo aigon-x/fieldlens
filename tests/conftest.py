@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import atexit
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -12,6 +16,22 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from fieldlens.synth import make_sample  # noqa: E402
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config: pytest.Config) -> None:
+    """Give the session its own scratch directory outside the shared /tmp tmpfs.
+
+    /tmp on this host is 8 GB shared with every other workload; when it fills,
+    ``tmp_path`` fails with ENOSPC through no fault of the code. A fresh directory
+    per session also survives the host's ownership enforcement, which can chown a
+    reused directory out from under the user running the suite.
+    """
+    root = Path("/var/tmp")
+    scratch = Path(tempfile.mkdtemp(prefix="fieldlens-pytest-",
+                                    dir=str(root) if os.access(root, os.W_OK) else None))
+    tempfile.tempdir = str(scratch)
+    atexit.register(shutil.rmtree, scratch, True)
 
 
 @pytest.fixture(scope="session")

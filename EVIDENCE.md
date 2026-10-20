@@ -77,9 +77,10 @@ garbage bytes must raise, a blind detector must score F1 = 0, an S3 event withou
 must return 501, and a malformed S3 record must return 400.
 
 Re-measured 2026-10-20 after the accessibility change: `60 passed in 19.59s` (58 before,
-+2 contrast tests). The suite now pins `--basetemp=.pytest-tmp` inside the project: on that
-day the host's `/tmp` tmpfs was 100% full and two `tmp_path` tests failed with `ENOSPC`
-through no fault of the code, so scratch space no longer depends on a shared mount.
++2 contrast tests). On that day the host's `/tmp` tmpfs was 100% full and `tmp_path` tests
+failed with `ENOSPC` through no fault of the code, so `tests/conftest.py` now gives each
+session its own scratch directory under `/var/tmp` (removed at exit) instead of relying on
+the shared mount.
 
 ## 2. Benchmark, seed 7000 (40 plates, 5 clean)
 
