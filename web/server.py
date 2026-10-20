@@ -1,0 +1,66 @@
+"""Web layer for FieldLens: single-page inspector over the existing CV pipeline."""
+
+from __future__ import annotations
+
+import base64
+from pathlib import Path
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+
+from fieldlens import __version__
+from fieldlens.annotate import annotate
+from fieldlens.detect import DEFAULT_PARAMS, inspect_array
+from fieldlens.imageio import ImageDecodeError, decode_image, encode_png
+
+WEB_DIR = Path(__file__).resolve().parent
+INDEX_HTML = WEB_DIR / "index.html"
+MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="FieldLens Web", version=__version__)
+
+    @app.get("/", include_in_schema=False)
+    def index() -> FileResponse:
+        if not INDEX_HTML.is_file():
+            raise HTTPException(status_code=500, detail="index.html missing")
+        return FileResponse(INDEX_HTML, media_type="text/html")
+
+    @app.get("/api/health")
+    def health() -> dict:
+        return {"status": "ok", "version": __version__, "engine": "opencv-matched-filter"}
+
+    @app.post("/api/inspect")
+    async def inspect(file: UploadFile | None = File(default=None)) -> JSONResponse:
+        if file is None:
+            raise HTTPException(status_code=400, detail="multipart field 'file' is required")
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty upload")
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="payload too large")
+        try:
+            image = decode_image(data)
+        except ImageDecodeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        result = inspect_array(image, DEFAULT_PARAMS)
+        annotated = encode_png(annotate(image, result))
+        payload = {
+            "defects": [
+                {"type": d.kind, "score": round(float(d.score), 3), "box": list(d.bbox)}
+                for d in result.defects
+            ],
+            "count": len(result.defects),
+            "annotated_png_base64": base64.b64encode(annotated).decode("ascii"),
+            "image_size": list(result.image_size),
+            "elapsed_ms": round(float(result.elapsed_ms), 2),
+            "version": __version__,
+        }
+        return JSONResponse(payload)
+
+    return app
+
+
+app = create_app()

@@ -319,3 +319,44 @@ OpenCV 5. `tests/test_synth.py` asserts the manifest matches the images on a rou
   0.574-0.678 respectively. None is a universal accuracy claim, and clean plates are not
   guaranteed false-positive free.
 * **Timings as constants.** 106-262 ms/plate on a shared host; the spread is load.
+
+## 9. Web UI (FastAPI + single-page client)
+
+Files: `web/server.py` (API and static shell), `web/index.html` (dark single-page client, no
+build step), `tests/test_web.py`. The page calls the same `inspect_array` pipeline as
+`POST /inspect`; detection logic is unchanged.
+
+```
+$ python3 -m uvicorn web.server:app --host 127.0.0.1 --port 8731
+$ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8731/    # 200
+$ curl -s http://127.0.0.1:8731/api/health
+{"status":"ok","version":"1.0.0","engine":"opencv-matched-filter"}
+$ # multipart POST of samples/images/plate_0000_seed7400.png
+POST /api/inspect -> 200 | count: 1 | types: ['scratch'] | annotated PNG: 292988 b64 chars | 311.34 ms
+```
+
+`POST /api/inspect` returns `{"defects":[{"type","score","box":[x,y,w,h]}],"count":N,
+"annotated_png_base64":"..."}` plus `image_size`, `elapsed_ms` and `version`. Garbage bytes
+return 400, a missing `file` field returns 400, a payload above 12 MB returns 413.
+
+Whole suite, the requested command:
+
+```
+$ python3 -m pytest -q -p no:warnings
+......................................................                   [100%]
+54 passed in 32.15s
+```
+
+The 5 new tests cover `GET /` (200, viewport meta, dropzone markup), `GET /api/health`,
+the `POST /api/inspect` contract on a generated scratch plate (count, per-defect keys,
+PNG magic), a non-image upload → 400 and a missing multipart field → 400. The suite had 49
+tests before this change.
+
+Browser verification (Chromium 1234 via Playwright; desktop 1440×1000, mobile 480×900):
+empty state, result state (1 defect, box drawn on canvas, 1 list row), reset back to empty,
+error state for `bad.txt` (`"bad.txt" is not an image (text/plain).`), 0 console errors, no
+horizontal overflow at 480 px. The result-state check caught a real defect — the canvas
+container stayed `display:none` because its state class was never toggled — fixed before commit.
+
+Not proven: load/concurrency behaviour (single client only), real inspection-line images,
+and rendering in WebKit or Firefox.
