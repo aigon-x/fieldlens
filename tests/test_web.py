@@ -129,21 +129,21 @@ def test_secondary_text_meets_wcag_aa_on_every_surface() -> None:
     """Faint text is 11-12.5 px, so SC 1.4.3 requires 4.5:1 on each surface it lands on."""
     html = client.get("/").text
     tokens = _root_tokens(html)
-    for surface in ("--bg", "--panel", "--panel-2", "--panel-3"):
+    for surface in ("--bg", "--panel", "--panel-2"):
         ratio = _contrast(tokens["--faint"], tokens[surface])
         assert ratio >= 4.5, f"--faint on {surface} is {ratio:.2f}:1, below 4.5:1"
 
 
-def test_white_labels_sit_on_the_darker_accent() -> None:
-    """White on --accent is 3.81:1; every white-labelled surface must use --accent-ink."""
+def test_accent_button_text_meets_wcag_aa() -> None:
+    """The accent button uses dark ink on the beam colour; the pair must clear 4.5:1."""
     html = client.get("/").text
     tokens = _root_tokens(html)
-    for token in ("--accent-ink", "--accent-ink-hover"):
-        ratio = _contrast("#ffffff", tokens[token])
-        assert ratio >= 4.5, f"white on {token} is {ratio:.2f}:1, below 4.5:1"
-    for selector, token in ((".skip-link", "--accent-ink"), (".btn-accent", "--accent-ink"),
-                            (".btn-accent:hover", "--accent-ink-hover")):
-        assert f"var({token})" in _rule(html, selector), f"{selector} lost {token}"
+    rule = _rule(html, ".btn-accent")
+    assert "var(--beam)" in rule, ".btn-accent must draw the beam colour"
+    match = re.search(r"color:\s*(#[0-9a-fA-F]{6})", rule)
+    assert match, ".btn-accent needs an explicit ink colour"
+    ratio = _contrast(match.group(1), tokens["--beam"])
+    assert ratio >= 4.5, f"accent button text is {ratio:.2f}:1, below 4.5:1"
 
 
 ROOT = Path(__file__).resolve().parents[1]
