@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  FieldLens - classical-CV surface defect inspection on OpenCV 5.0.0.93.
+  This template defines the function, its HTTP endpoint and a PNG upload trigger.
+  It has NOT been deployed by the repository's evidence run: deployment needs AWS
+  credentials and is performed only by scripts/deploy_aws.sh.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+
+Parameters:
+  Stage:
+    Type: String
+    Default: demo
+    AllowedPattern: "[a-z0-9-]+"
+    Description: API Gateway stage suffix.
+  MemorySize:
+    Type: Number
+    Default: 2048
+    MinValue: 512
+    MaxValue: 10240
+    Description: OpenCV import and the filter bank need headroom; 2048 MB is the tested value.
+  Timeout:
+    Type: Number
+    Default: 30
+    MinValue: 3
+    MaxValue: 900
+    Description: Seconds. A 384x384 plate is ~0.25 s after a cold start.
+
+Resources:
+  PlatesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "fieldlens-plates-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  FieldLensFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "fieldlens-${Stage}"
+      CodeUri: .
+      Handler: lambda_handler.handler
+      Description: FieldLens OpenCV 5 defect inspection
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      Environment:
+        Variables:
+          OPENCV_LOG_LEVEL: ERROR
+      Policies:
+        # Scoped ARN is built from account/region instead of !Ref PlatesBucket:
+        # a role policy that references the bucket would make bucket -> function ->
+        # role -> policy -> bucket a CloudFormation dependency cycle once the S3
+        # notification on the same bucket is added.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: !Sub "arn:${AWS::Partition}:s3:::fieldlens-plates-${AWS::AccountId}-${AWS::Region}/*"
+      Events:
+        InspectHttp:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref FieldLensApi
+            Path: /inspect
+            Method: POST
+        PlateUpload:
+          Type: S3
+          Properties:
+            Bucket: !Ref PlatesBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .png
+
+  FieldLensApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+
+Outputs:
+  InspectUrl:
+    Description: 'POST image bytes (Content-Type image/png) or JSON with image_base64'
+    Value: !Sub "https://${FieldLensApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/inspect"
+  FunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt FieldLensFunction.Arn
+  PlatesBucketName:
+    Description: Upload a .png here to trigger the same handler through the S3 event
+    Value: !Ref PlatesBucket

@@ -1,95 +1,171 @@
 # EVIDENCE — FieldLens
 
-Every number below is a raw command output, produced on 2026-10-20 on the host that runs
+Every number below is raw command output, produced on 2026-10-20 on the host that runs
 the AIGON mesh (`local-aigon`), not an estimate. Reproduce with the commands shown.
 
 ## Environment
 
 ```
-$ python3 -c "import sys, cv2, numpy, fastapi, pytest; ..."
-python 3.12.3
-cv2 4.13.0
-numpy 2.5.1
-fastapi 0.139.0
+$ python3 - <<'PY'
+import sys, cv2, numpy, fastapi, pytest
+print("python", sys.version.split()[0])
+print("cv2.__version__", cv2.__version__)
+print("cv2 file", cv2.__file__)
+print("numpy", numpy.__version__)
+print("fastapi", fastapi.__version__)
+print("pytest", pytest.__version__)
+PY
+python 3.11.15
+cv2.__version__ 5.0.0
+cv2 file /home/sniegul/.local/lib/python3.11/site-packages/cv2/__init__.py
+numpy 2.4.6
+fastapi 0.141.1
 pytest 9.0.3
 ```
 
-Ubuntu 24.04, 24 cores, no GPU used, no network access needed. `python3` is `/usr/bin/python3`.
-The host was shared and loaded (load average ~12) during the runs, which is why timings are
-quoted as ranges.
+OpenCV 5 was installed with the required pin:
+
+```
+$ python3 -m pip install --user opencv-python-headless==5.0.0.93
+error: externally-managed-environment            # PEP 668 on this host
+$ python3 -m pip install --user --break-system-packages opencv-python-headless==5.0.0.93
+Collecting opencv-python-headless==5.0.0.93
+  Using cached opencv_python_headless-5.0.0.93-cp37-abi3-manylinux_2_28_x86_64.whl (61.2 MB)
+Successfully installed opencv-python-headless-5.0.0.93
+$ /usr/bin/python3 -m pip install --user --break-system-packages opencv-python-headless==5.0.0.93
+Successfully installed opencv-python-headless-5.0.0.93
+$ /usr/bin/python3 -c "import cv2; print(cv2.__version__)"
+5.0.0
+```
+
+`--break-system-packages` was required only because both interpreters carry a PEP 668
+marker; combined with `--user` it writes to `~/.local/lib/python3.X/site-packages` and
+does not modify the system site-packages.
+
+`requirements.txt` now pins `opencv-python-headless==5.0.0.93`. Both interpreters on
+this host (3.11.15 as `python3`, 3.12.3 as `/usr/bin/python3`) import the same
+`cp37-abi3` wheel and report `cv2.__version__ == "5.0.0"`. Ubuntu 24.04, 24 cores, no
+GPU, no network access needed: the host was shared and loaded, so timings are ranges.
 
 ## 1. Tests
 
 ```
-$ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests
-............................................                             [100%]
-44 passed, 1 warning in 12.92s
-```
-
-The warning is `StarletteDeprecationWarning: Using httpx with starlette.testclient is
-deprecated` — raised by FastAPI's own TestClient shim, not by this project.
-
-Timing varies with host load: the same suite measured 12.9-19.2 s across runs; the
-44-test count and the pass/fail result were identical every time.
-
-The requirement is `python3 -m pytest tests -q`. On this host a globally installed
-pytest plugin (a browser-automation plugin that prints its own `--headless` banner)
-suppresses pytest's summary line, so the plain command prints the 44 progress dots and
-the warnings block, and exits 0:
-
-```
-$ python3 -m pytest tests -q
-............................................                             [100%]
+$ time python3 -m pytest tests -q
+.................................................                        [100%]
 =============================== warnings summary ===============================
-...
+../../../../../../../../home/sniegul/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /home/sniegul/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-$ echo $?
-0
+49 passed, 1 warning in 21.09s
+
+real	0m22,093s
+user	0m26,913s
+sys	0m17,057s
 ```
 
-`pytest.ini` pins `testpaths=tests`; the suite covers 44 cases including the negative ones
-(clean plate → 0 defects, garbage payload → error, blind detector → F1 0, S3 Lambda event
-→ 501).
+The warning is raised by FastAPI's own `TestClient` shim, not by this project. The
+44-dot output of the previous revision became 49 tests after adding the strict-IoU and
+seed-sweep tests and the S3-path tests.
 
-## 2. Benchmark (acceptance criterion: F1 ≥ 0.80 at n = 40)
+`pytest.ini` used to add `-q` on top of the command-line `-q` (pytest's `-qq`), which
+suppressed the summary line; it now adds `-ra`, so the requested command prints
+`49 passed`. A second run on `/usr/bin/python3` (3.12.3) measured `49 passed, 1 warning
+in 16.53s`; the count and result were identical, the timing varies with host load. The suite includes negative cases: a clean plate must return zero defects,
+garbage bytes must raise, a blind detector must score F1 = 0, an S3 event without boto3
+must return 501, and a malformed S3 record must return 400.
+
+## 2. Benchmark, seed 7000 (40 plates, 5 clean)
 
 ```
-$ python3 -m fieldlens benchmark --n 40
+$ python3 -m fieldlens benchmark --n 40 --seed 7000 --no-sweep
 FieldLens 1.0.0 benchmark — synthetic plates, deterministic seed 7000
-images: 40  clean: 5  time: 143.7 ms/image (7.0 img/s)
+images: 40  clean: 5  time: 141.4 ms/image (7.1 img/s)
 TP=63  FP=7  FN=3
-precision=0.9000  recall=0.9545  f1=0.9265
+IoU 0.25 + containment (primary, lenient): precision=0.9000  recall=0.9545  f1=0.9265
+IoU 0.25 (no containment):                 precision=0.7857  recall=0.8333  f1=0.8088  (TP=55 FP=15 FN=11)
+IoU 0.50 (no containment):                 precision=0.6429  recall=0.6818  f1=0.6618  (TP=45 FP=25 FN=21)
 kind accuracy (matched)=0.7778  mean match score=0.6938
   scratch  gt=29  hit=27  pred=31  recall=0.9310
   dent     gt=22  hit=22  pred=30  recall=1.0000
   stain    gt=15  hit=14  pred=9   recall=0.9333
-false positives on clean plates: 0 (0.00/image)
-acceptance gate F1 >= 0.80: PASS
+clean plates: 5  false positives on them: 0 (0.00/image)
+acceptance gate on IoU 0.25 + containment, F1 >= 0.80: PASS
 images with misses (first 10):
   seed=7006 gt=3 det=2 missed=['scratch']
   seed=7037 gt=2 det=1 missed=['scratch']
   seed=7039 gt=3 det=2 missed=['stain']
 ```
 
-Same command, other seeds (stability check, not cherry-picked):
+`TP=63 FP=7 FN=3` is the primary (lenient) matcher; the two pure-IoU matchers have
+their own counts on the following lines. All three rows are the same detections scored
+three times, not three runs.
+
+The OpenCV 5 counts and metrics are **identical** to the documented 4.13 run
+(`TP=63 FP=7 FN=3`, P=0.9000 R=0.9545): the pipeline is deterministic and no source
+change was needed.
+
+## 3. Seed sweep — six independent bases
 
 ```
-seed 5000 -> precision 0.862  recall 0.933  f1 0.896
-seed 7000 -> precision 0.900  recall 0.955  f1 0.927
-seed 9000 -> precision 0.833  recall 0.862  f1 0.848
+$ time python3 -m fieldlens benchmark --n 40 --seed 7000
+FieldLens 1.0.0 benchmark — synthetic plates, deterministic seed 7000
+images: 40  clean: 5  time: 116.3 ms/image (8.6 img/s)
+TP=63  FP=7  FN=3
+IoU 0.25 + containment (primary, lenient): precision=0.9000  recall=0.9545  f1=0.9265
+IoU 0.25 (no containment):                 precision=0.7857  recall=0.8333  f1=0.8088  (TP=55 FP=15 FN=11)
+IoU 0.50 (no containment):                 precision=0.6429  recall=0.6818  f1=0.6618  (TP=45 FP=25 FN=21)
+kind accuracy (matched)=0.7778  mean match score=0.6938
+  scratch  gt=29  hit=27  pred=31  recall=0.9310
+  dent     gt=22  hit=22  pred=30  recall=1.0000
+  stain    gt=15  hit=14  pred=9   recall=0.9333
+clean plates: 5  false positives on them: 0 (0.00/image)
+acceptance gate on IoU 0.25 + containment, F1 >= 0.80: PASS
+seed sweep (6 independent bases, n=40 each):
+  IoU 0.25 + containment f1 min=0.8361 median=0.8778 max=0.9298
+  IoU 0.25 (no cont.)    f1 min=0.7360 median=0.7933 max=0.8596
+  IoU 0.50 (no cont.)    f1 min=0.5738 median=0.6467 max=0.6780
+  clean plates total: 36  false positives on them: 3
+images with misses (first 10):
+  seed=7006 gt=3 det=2 missed=['scratch']
+  seed=7037 gt=2 det=1 missed=['scratch']
+  seed=7039 gt=3 det=2 missed=['stain']
+
+real	0m48,351s
+user	0m56,832s
+sys	0m34,842s
 ```
 
-Ablation (metric responsiveness, also asserted by
-`test_metric_reacts_to_a_blind_detector`): thresholds pushed out of reach give
-`TP=0, FP=0, F1=0.0, passed=False`. Disabling only the disk channel drops F1 from 0.927 to
-0.892, so the channel is doing measurable work.
+Per-seed values from the same `run_seed_sweep` function:
 
-## 3. Single-plate inspection (CLI)
+```
+seed      f1@0.25+cont  f1@0.25pure  f1@0.50pure  clean_imgs  clean_fp
+5000      0.8960        0.7360       0.6080       4           0
+7000      0.9265        0.8088       0.6618       5           0
+9000      0.8475        0.7797       0.6780       8           2
+12000     0.8596        0.8070       0.6316       7           0
+20000     0.9298        0.8596       0.6667       6           0
+33333     0.8361        0.7541       0.5738       6           1
+```
+
+Seed 7000 is the best of the six for every matcher; it is not the headline. The honest
+summary is: IoU 0.25 + containment F1 0.836-0.930 (median 0.878), pure IoU 0.25 F1
+0.736-0.860 (median 0.793), pure IoU 0.50 F1 0.574-0.678 (median 0.647). **There are
+false positives on clean plates:** 3 across 36 clean images, 2 at seed 9000 and 1 at
+seed 33333. The earlier claim that clean plates produce no false positives was true only
+for the seeds that had been run at the time and is withdrawn.
+
+Ablation (asserted by `test_metric_reacts_to_a_blind_detector`): thresholds pushed out
+of reach give `TP=0, FP=0, F1=0.0, passed=False`, so the metric reacts to a detector
+that does nothing.
+
+## 4. Single-plate inspection (CLI)
 
 ```
 $ python3 -m fieldlens inspect samples/images/plate_0003_seed7403.png --out-dir out
 FieldLens 1.0.0 — samples/images/plate_0003_seed7403.png
-image: 384x384  scale=1.000  defects=2  elapsed=244.5 ms
+image: 384x384  scale=1.000  defects=2  elapsed=262.4 ms
  id kind     bbox                    score  contrast  elong
   0 dent     (71, 119, 60, 69)        2.27      5.43   1.44
   1 scratch  (179, 142, 65, 124)      2.77      5.77  25.37
@@ -98,17 +174,20 @@ wrote: out/plate_0003_seed7403_annotated.png
 wrote: out/plate_0003_seed7403_mask.png
 ```
 
-Ground truth for that seed (from `samples/ground_truth.json`):
-`dent [71, 118, 61, 72]`, `scratch [179, 142, 64, 125]`. Both found, both labelled
-correctly; box IoU 0.94 (dent) and 0.98 (scratch).
+Ground truth for that seed (`samples/ground_truth.json`): `dent [71, 118, 61, 72]`,
+`scratch [179, 142, 64, 125]`. Both found, both labelled correctly; box IoU 0.94 (dent)
+and 0.98 (scratch).
 
-Clean plate, same command:
+Clean plate:
 
 ```
 $ python3 -m fieldlens inspect samples/images/plate_0005_seed7405.png --out-dir out
 FieldLens 1.0.0 — samples/images/plate_0005_seed7405.png
-image: 384x384  scale=1.000  defects=0  elapsed=257.2 ms
+image: 384x384  scale=1.000  defects=0  elapsed=200.2 ms
 no defects above threshold
+wrote: out/plate_0005_seed7405.json
+wrote: out/plate_0005_seed7405_annotated.png
+wrote: out/plate_0005_seed7405_mask.png
 ```
 
 Two scratches on one plate:
@@ -116,20 +195,22 @@ Two scratches on one plate:
 ```
 $ python3 -m fieldlens inspect samples/images/plate_0006_seed7406.png --out-dir out
 FieldLens 1.0.0 — samples/images/plate_0006_seed7406.png
-image: 384x384  scale=1.000  defects=2  elapsed=226.9 ms
+image: 384x384  scale=1.000  defects=2  elapsed=222.2 ms
  id kind     bbox                    score  contrast  elong
   0 scratch  (225, 218, 50, 60)       2.86      6.03  18.00
-  1 scratch  (30, 257, 73, 122)       2.26      5.49  40.81
+  1 scratch  (30, 257, 73, 122)       2.26      5.49  40.72
+wrote: out/plate_0006_seed7406.json
+wrote: out/plate_0006_seed7406_annotated.png
+wrote: out/plate_0006_seed7406_mask.png
 ```
 
-## 4. HTTP API (`python3 -m fieldlens serve --port 8099`)
+## 5. HTTP API (`python3 -m fieldlens serve --port 8099`)
 
 Health:
 
 ```
 $ curl -s http://127.0.0.1:8099/health
-{"status":"ok","version":"1.0.0","engine":"opencv-matched-filter",
- "defaults":{"max_dim":768,"line_angles":8}}
+{"status":"ok","version":"1.0.0","engine":"opencv-matched-filter","defaults":{"max_dim":768,"line_angles":8}}
 ```
 
 Raw PNG body:
@@ -137,34 +218,14 @@ Raw PNG body:
 ```
 $ curl -s -X POST --data-binary @samples/images/plate_0003_seed7403.png \
        -H 'Content-Type: image/png' http://127.0.0.1:8099/inspect
-{"defect_count":2,"counts":{"scratch":1,"dent":1,"stain":0,"total":2},
- "defects":[{"id":0,"kind":"dent","bbox":[71,119,60,69],"area_px":3025,
-             "score":2.271,"elongation":1.444,"contrast":5.43,
-             "centroid":[101.0,153.5]},
-            {"id":1,"kind":"scratch","bbox":[179,142,65,124],"area_px":1924,
-             "score":2.767,"elongation":25.369,"contrast":5.77,
-             "centroid":[211.5,204.0]}],
- "image_size":[384,384],"working_scale":1.0,"elapsed_ms":179.38,
- "engine":"opencv-matched-filter","version":"1.0.0"}
-```
-
-JSON + base64 with mask (excerpt):
-
-```
-$ curl -s -H 'Content-Type: application/json' --data-binary @out/request.json \
-       http://127.0.0.1:8099/inspect
-{'defect_count': 2, 'counts': {'scratch': 2, 'dent': 0, 'stain': 0, 'total': 2},
- 'image_size': [384, 384], 'elapsed_ms': 222.57}
-mask_b64_len 2160
+{"defect_count":2,"counts":{"scratch":1,"dent":1,"stain":0,"total":2},"defects":[{"id":0,"kind":"dent","bbox":[71,119,60,69],"area_px":3025,"score":2.271,"elongation":1.444,"contrast":5.43,"centroid":[101.0,153.5]},{"id":1,"kind":"scratch","bbox":[179,142,65,124],"area_px":1924,"score":2.767,"elongation":25.369,"contrast":5.77,"centroid":[211.5,204.0]}],"image_size":[384,384],"working_scale":1.0,"elapsed_ms":217.94,"engine":"opencv-matched-filter","version":"1.0.0"}
 ```
 
 Multipart on a clean plate:
 
 ```
 $ curl -s -F "file=@samples/images/plate_0005_seed7405.png" http://127.0.0.1:8099/inspect
-{"defect_count":0,"counts":{"scratch":0,"dent":0,"stain":0,"total":0},"defects":[],
- "image_size":[384,384],"working_scale":1.0,"elapsed_ms":164.45,
- "engine":"opencv-matched-filter","version":"1.0.0"}
+{"defect_count":0,"counts":{"scratch":0,"dent":0,"stain":0,"total":0},"defects":[],"image_size":[384,384],"working_scale":1.0,"elapsed_ms":133.97,"engine":"opencv-matched-filter","version":"1.0.0"}
 ```
 
 Garbage payload:
@@ -175,14 +236,18 @@ $ curl -s -o /dev/null -w "%{http_code}\n" -X POST --data-binary 'nope' \
 400
 ```
 
-Server log for the same session:
+JSON + base64 with mask (summary of the response body):
 
 ```
-INFO:     127.0.0.1:26114 - "POST /inspect HTTP/1.1" 200 OK
-INFO:     Shutting down
+$ curl -s -H 'Content-Type: application/json' --data-binary @out/request.json \
+       http://127.0.0.1:8099/inspect
+{'defect_count': 2, 'counts': {'scratch': 1, 'dent': 1, 'stain': 0, 'total': 2},
+ 'image_size': [384, 384], 'elapsed_ms': 246.59, 'mask_b64_len': 2164}
 ```
 
-## 5. Lambda handler (direct invoke, no AWS account involved)
+The server was stopped after the calls; the log is not kept.
+
+## 6. Lambda handler (direct invoke, no AWS account involved)
 
 ```
 $ python3 lambda_handler.py samples/images/plate_0003_seed7403.png
@@ -192,37 +257,65 @@ $ python3 lambda_handler.py samples/images/plate_0003_seed7403.png
   "defects": [
     {"id": 0, "kind": "dent", "bbox": [71, 119, 60, 69], "area_px": 3025,
      "score": 2.271, "elongation": 1.444, "contrast": 5.43, "centroid": [101.0, 153.5]},
-    ...
+    {"id": 1, "kind": "scratch", "bbox": [179, 142, 65, 124], "area_px": 1924,
+     "score": 2.767, "elongation": 25.369, "contrast": 5.77, "centroid": [211.5, 204.0]}
+  ],
+  "image_size": [384, 384],
+  "working_scale": 1.0,
+  "elapsed_ms": 202.5,
+  "version": "1.0.0",
+  "engine": "opencv-matched-filter"
+}
 ```
 
 `tests/test_lambda.py` covers the API Gateway base64 shape, the direct-invoke shape, a
-malformed body (400) and an S3 notification (501, explicitly not implemented).
+malformed body (400), an S3 event with a stubbed boto3 client (200, checks the decoded
+key and `source`), an S3 event without boto3 (501), and an S3 event without an object
+key (400). The S3 branch has never been exercised against a real bucket.
 
-## 6. Dataset generation
+`template.yaml` (SAM) and `scripts/deploy_aws.sh` define the deployment. Neither the AWS
+CLI nor the SAM CLI is installed on this host, so the script stops at its first check and
+deploys nothing:
 
 ```
-$ python3 -m fieldlens synth --out samples --n 8 --seed 7400
+$ bash scripts/deploy_aws.sh
+deploy_aws.sh: performs a REAL deployment and requires AWS credentials.
+ERROR: AWS CLI not found in PATH; deployment needs the AWS CLI plus credentials. NOTHING WAS DEPLOYED.
+$ echo $?
+1
+```
+
+The script was not run against AWS; see section 8.
+
+## 7. Dataset generation
+
+```
+$ python3 -m fieldlens synth --out out/synth-check --n 8 --seed 7400
 {
-  "out": ".../project/samples",
+  "out": ".../project/out/synth-check",
   "images": 8,
   "defects": 13,
   "manifest": "ground_truth.json"
 }
 ```
 
-`samples/ground_truth.json` lists every defect with its type, bbox, area and contrast;
-`tests/test_synth.py` asserts the manifest matches the images on a round-trip.
+Same 8 images / 13 defects as the checked-in `samples/` directory, generated under
+OpenCV 5. `tests/test_synth.py` asserts the manifest matches the images on a round-trip.
 
-## What this evidence does NOT prove
+## 8. What this evidence does NOT prove
 
 * **Real-world accuracy.** All numbers come from the synthetic generator in
-  `fieldlens/synth.py`; no production inspection-line images were available here.
-* **AWS deployment.** The Lambda handler is executed locally with a synthetic event. The
-  `Dockerfile` was written but **not built** in this session (building is out of scope for
-  the task), and no AWS resource was touched.
+  `fieldlens/synth.py`; no production inspection-line images were available.
+* **AWS deployment.** `template.yaml` exists and `scripts/deploy_aws.sh` is written, but
+  **no `sam build`, no `sam deploy` and no AWS API call were made** — there were no AWS
+  credentials. No bucket, function, API Gateway or CloudFormation stack was created. The
+  S3 path is tested only with a stubbed client.
 * **Kind classification quality.** `kind_accuracy` is 0.7778 at seed 7000: dents and
   stains are sometimes swapped. Detection metrics do not depend on the label.
-* **Concurrency / load behaviour of the API.** The endpoint is stateless and was exercised
-  with a single client; no load test was run.
-* **OpenCV 5 compatibility.** Only 4.13.0 is installed; the migration is a plan in
-  `ARCHITECTURE.md`, not a verified port.
+* **Concurrency / load behaviour of the API.** The endpoint is stateless and was
+  exercised with a single client; no load test was run.
+* **A single F1 number.** At seed 7000: 0.927 with the contained-core rule, 0.809 at
+  pure IoU 0.25, 0.662 at pure IoU 0.50; across seeds 0.836-0.930, 0.736-0.860 and
+  0.574-0.678 respectively. None is a universal accuracy claim, and clean plates are not
+  guaranteed false-positive free.
+* **Timings as constants.** 106-262 ms/plate on a shared host; the spread is load.

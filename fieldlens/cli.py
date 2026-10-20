@@ -72,7 +72,8 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
 def _cmd_benchmark(args: argparse.Namespace) -> int:
     params = DEFAULT_PARAMS
-    report = run_benchmark(n=args.n, seed=args.seed, min_f1=args.min_f1, params=params)
+    seeds = None if args.no_sweep else [int(v) for v in args.sweep_seeds.split(",") if v.strip()]
+    report = run_benchmark(n=args.n, seed=args.seed, min_f1=args.min_f1, params=params, seeds=seeds)
     payload = json.dumps(report, indent=2)
     if args.json_out:
         Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
@@ -85,15 +86,34 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
         print(f"images: {report['images']}  clean: {report['clean_images']}  "
               f"time: {report['ms_per_image']:.1f} ms/image ({report['images_per_s']:.1f} img/s)")
         print(f"TP={report['tp']}  FP={report['fp']}  FN={report['fn']}")
-        print(f"precision={report['precision']:.4f}  recall={report['recall']:.4f}  f1={report['f1']:.4f}")
+        print(f"IoU 0.25 + containment (primary, lenient): precision={report['precision']:.4f}  "
+              f"recall={report['recall']:.4f}  f1={report['f1']:.4f}")
+        iou25 = report["iou25_no_containment"]
+        print(f"IoU 0.25 (no containment):                 precision={iou25['precision']:.4f}  "
+              f"recall={iou25['recall']:.4f}  f1={iou25['f1']:.4f}  "
+              f"(TP={iou25['tp']} FP={iou25['fp']} FN={iou25['fn']})")
+        strict = report["strict_iou50"]
+        print(f"IoU 0.50 (no containment):                 precision={strict['precision']:.4f}  "
+              f"recall={strict['recall']:.4f}  f1={strict['f1']:.4f}  "
+              f"(TP={strict['tp']} FP={strict['fp']} FN={strict['fn']})")
         print(f"kind accuracy (matched)={report['kind_accuracy']:.4f}  mean match score={report['mean_match_score']:.4f}")
         for kind, stats in report["per_kind"].items():
             rec = "n/a" if stats["recall"] is None else f"{stats['recall']:.4f}"
             print(f"  {kind:<8} gt={stats['gt']:<3} hit={stats['hit']:<3} pred={stats['pred']:<3} recall={rec}")
-        print(f"false positives on clean plates: {report['false_positives_on_clean']} "
-              f"({report['fp_per_clean_image']:.2f}/image)")
+        print(f"clean plates: {report['clean_images']}  false positives on them: "
+              f"{report['false_positives_on_clean']} ({report['fp_per_clean_image']:.2f}/image)")
         gate = "PASS" if report["passed"] else "FAIL"
-        print(f"acceptance gate F1 >= {report['min_f1']:.2f}: {gate}")
+        print(f"acceptance gate on IoU 0.25 + containment, F1 >= {report['min_f1']:.2f}: {gate}")
+        sweep = report.get("seed_sweep")
+        if sweep:
+            print(f"seed sweep ({len(sweep['seeds'])} independent bases, n={sweep['n_per_seed']} each):")
+            for label, key in (("IoU 0.25 + containment", "f1_iou25_containment"),
+                               ("IoU 0.25 (no cont.)   ", "f1_iou25_no_containment"),
+                               ("IoU 0.50 (no cont.)   ", "f1_iou50_strict")):
+                st = sweep[key]
+                print(f"  {label} f1 min={st['min']:.4f} median={st['median']:.4f} max={st['max']:.4f}")
+            print(f"  clean plates total: {sweep['clean_images_total']}  "
+                  f"false positives on them: {sweep['false_positives_on_clean_total']}")
         if report["failed_images"]:
             print("images with misses (first 10):")
             for f in report["failed_images"]:
@@ -135,6 +155,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_bench.add_argument("--n", type=int, default=40)
     p_bench.add_argument("--seed", type=int, default=7000)
     p_bench.add_argument("--min-f1", type=float, default=0.80)
+    p_bench.add_argument("--sweep-seeds", default="5000,7000,9000,12000,20000,33333",
+                         help="comma-separated seed bases for the stability sweep")
+    p_bench.add_argument("--no-sweep", action="store_true", help="skip the seed sweep")
     p_bench.add_argument("--json-out", default=None)
     p_bench.add_argument("--json", action="store_true")
     p_bench.set_defaults(func=_cmd_benchmark)

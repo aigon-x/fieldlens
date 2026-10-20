@@ -8,10 +8,20 @@ The evaluation is a deterministic synthetic dataset with pixel-accurate ground t
 the numbers below can be reproduced from scratch on any machine:
 
 ```
-precision 0.900   recall 0.955   F1 0.927      (40 plates, seed 7000)
-0 false positives on 5 clean plates
-168 ms per 384x384 plate on a loaded 24-core host, Python 3.12 + OpenCV 4.13
+precision 0.900   recall 0.955   F1 0.927   (IoU 0.25 + contained core, 40 plates, seed 7000)
+precision 0.786   recall 0.833   F1 0.809   (same detections, IoU 0.25, no containment)
+precision 0.643   recall 0.682   F1 0.662   (same detections, IoU 0.50, no containment)
+F1 over 6 independent seeds: 0.836-0.930 / 0.736-0.860 / 0.574-0.678
+                             (medians 0.878 / 0.793 / 0.647, same order as above)
+clean-plate false positives: 3 on 36 clean plates across those seeds (not zero)
+106-222 ms per 384x384 plate (wall clock on a shared host), Python 3.11/3.12 + OpenCV 5.0.0
 ```
+
+Seed 7000 is a single dataset, not the headline: the seed range above is the honest
+summary. The first row is an auxiliary lenient rule (a detection contained in the
+ground-truth box also counts) because thin scratches have an unfavourable area/box
+ratio. The two pure-IoU rows are the conventional detection numbers: **F1 0.809 at
+IoU 0.25 and 0.662 at IoU 0.50** on seed 7000. All three are printed by every run.
 
 ## What it does
 
@@ -41,12 +51,10 @@ labelled, which is what keeps brushed-metal texture from producing defects.
 python3 -m pip install -r requirements.txt     # numpy, opencv-python-headless, fastapi, uvicorn
 ```
 
-Nothing else is required. Python 3.12 and OpenCV 4.13 were used for the evidence run.
-
-> On the machine used for the evidence run, `python3` in `PATH` is a user-local shim
-> without numpy; the interpreter that has OpenCV/numpy is `/usr/bin/python3`. If your
-> `python3` lacks numpy, run the commands below with `/usr/bin/python3` or set
-> `PYTHON=/usr/bin/python3 ./demo.sh`.
+Nothing else is required. The evidence run used `python3` 3.11.15 and `/usr/bin/python3`
+3.12.3; both report `cv2.__version__ == 5.0.0` from the pinned wheel
+`opencv-python-headless==5.0.0.93`. If your interpreter lacks OpenCV, install the
+requirements or set `PYTHON=/path/to/python ./demo.sh`.
 
 ## Run
 
@@ -57,7 +65,7 @@ python3 -m fieldlens inspect samples/images/plate_0003_seed7403.png --out-dir ou
 # machine-readable only
 python3 -m fieldlens inspect samples/images/plate_0003_seed7403.png --json --no-write
 
-# evaluation on 40 generated plates; exit code 1 if F1 < 0.80
+# evaluation on 40 generated plates; exit code 1 if lenient F1 < 0.80
 python3 -m fieldlens benchmark --n 40
 
 # HTTP API
@@ -68,7 +76,7 @@ curl -X POST --data-binary @samples/images/plate_0003_seed7403.png \
 # regenerate the synthetic dataset (images + ground_truth.json)
 python3 -m fieldlens synth --out samples --n 8 --seed 7400
 
-# tests (44, ~30 s)
+# tests (49, ~21 s)
 python3 -m pytest tests -q
 ```
 
@@ -105,11 +113,17 @@ Response:
 
 ### Lambda
 
-`lambda_handler.handler` handles API Gateway proxy events and direct invokes with
-`{"image_base64": ...}`. S3 notifications return **501** on purpose: fetching from S3
-would need `boto3`, which is not a dependency of this package. The `Dockerfile` builds
-the Lambda container image (`CMD ["lambda_handler.handler"]`); the image was **not**
-built in this session.
+`lambda_handler.handler` handles API Gateway proxy events, direct invokes with
+`{"image_base64": ...}`, and S3 `ObjectCreated` notifications. The S3 path reads the
+object with `boto3` (bundled in the AWS Lambda Python runtime; a local interpreter
+without it returns **501** with an explicit message, never a silent success).
+
+`template.yaml` is an AWS SAM template with the function (`python3.12`, 2048 MB,
+30 s timeout, `lambda_handler.handler`), an HTTP API `POST /inspect`, and an S3 trigger
+for `.png` uploads to the generated bucket. `scripts/deploy_aws.sh` performs a real
+`sam build` + `sam deploy` and stops with an explicit error when AWS credentials are
+missing. **No AWS resource was created for this submission**: the template is written
+and the handler is exercised locally, but the deploy was not run.
 
 ## The synthetic benchmark
 
@@ -121,17 +135,33 @@ parameters, so the benchmark cannot be gamed by geometry bookkeeping.
 ```
 python3 -m fieldlens benchmark --n 40
 TP=63  FP=7  FN=3
-precision=0.9000  recall=0.9545  f1=0.9265
+IoU 0.25 + containment (primary, lenient): precision=0.9000  recall=0.9545  f1=0.9265
+IoU 0.25 (no containment):                 precision=0.7857  recall=0.8333  f1=0.8088  (TP=55 FP=15 FN=11)
+IoU 0.50 (no containment):                 precision=0.6429  recall=0.6818  f1=0.6618  (TP=45 FP=25 FN=21)
 ```
 
-Across seeds 5000 / 7000 / 9000: F1 0.896 / 0.927 / 0.848 (all above the 0.80 gate).
-Per-class recall at seed 7000: scratch 0.93, dent 1.00, stain 0.93.
+Every run also sweeps six independent seed bases (40 plates each, ~48 s):
 
-Scoring is one-to-one greedy matching. A detection counts as a hit when IoU >= 0.25, or
-when it is *contained* in the ground-truth box (containment >= 0.6 and at most 3x its
-area) — thin scratches have an unfavourable area/box ratio and a strict IoU-0.5 rule
-would punish correct detections. The containment rule is deliberately generous; it is
-stated here so the numbers are not over-read.
+```
+seed      f1@0.25+cont  f1@0.25pure  f1@0.50pure  clean_imgs  clean_fp
+5000      0.8960        0.7360       0.6080       4           0
+7000      0.9265        0.8088       0.6618       5           0
+9000      0.8475        0.7797       0.6780       8           2
+12000     0.8596        0.8070       0.6316       7           0
+20000     0.9298        0.8596       0.6667       6           0
+33333     0.8361        0.7541       0.5738       6           1
+```
+
+Summary: IoU 0.25 + containment F1 0.836-0.930 (median 0.878), pure IoU 0.25 F1
+0.736-0.860 (median 0.793), pure IoU 0.50 F1 0.574-0.678 (median 0.647), and 3 false
+positives on 36 clean plates. Per-class recall at seed 7000: scratch 0.93, dent 1.00,
+stain 0.93.
+
+Scoring is one-to-one greedy matching under three rules: **IoU 0.25 + containment**
+(a detection contained in the ground-truth box also counts, containment >= 0.6 and at
+most 3x its area), **IoU 0.25** (no containment) and **IoU 0.50** (no containment). The
+containment rule favours thin scratches whose pixel area is small relative to their
+bounding box. Quote the pure-IoU numbers unless the containment rule is stated.
 
 ## Limitations (measured, not guessed)
 
@@ -150,9 +180,13 @@ stated here so the numbers are not over-read.
   plate only in hue is invisible.
 * **No rotation/orientation prior beyond the 8 line angles** (22.5 deg steps). Curved
   scratches longer than ~150 px fragment into several boxes.
-* **Speed** is ~170-250 ms per 384x384 plate in pure Python+OpenCV on a loaded 24-core
-  host (single image, no batching). Larger inputs are downscaled to 768 px on the long
-  side before analysis, so reported boxes are rescaled back but sub-pixel detail is lost.
+* **Speed** is 106-262 ms per 384x384 plate in pure Python+OpenCV on a shared 24-core
+  host (single image, no batching); the spread is host load, not a fixed constant.
+  Larger inputs are downscaled to 768 px on the long side before analysis, so reported
+  boxes are rescaled back but sub-pixel detail is lost.
+* **The headline depends on the matcher.** At seed 7000, pure IoU 0.25 F1 is 0.809 and
+  pure IoU 0.50 F1 is 0.662, not the 0.927 of the contained-core rule. The gap comes
+  from thin scratches penalised by box IoU, but it is real and all three are reported.
 * **No persistence, no auth, no tenant isolation** in the API — it is a stateless
   single-endpoint service.
 
@@ -160,10 +194,12 @@ stated here so the numbers are not over-read.
 
 ```
 fieldlens/        library: io, preprocess, detect, synth, benchmark, annotate, api, cli
-lambda_handler.py AWS Lambda entry point
-tests/            44 unit/integration tests, including negative cases and an ablation
+lambda_handler.py AWS Lambda entry point (HTTP API, direct invoke, S3 via boto3)
+template.yaml     AWS SAM template: function, HTTP API, S3 trigger
+scripts/          deploy_aws.sh (real deployment; stops without AWS credentials)
+tests/            49 unit/integration tests, including negative cases and an ablation
 samples/          8 generated plates + ground_truth.json (demo input)
 Dockerfile        Lambda container image
-ARCHITECTURE.md   data flow, decisions, OpenCV 5 migration plan
+ARCHITECTURE.md   data flow, decisions, verified OpenCV 5 behaviour
 EVIDENCE.md       raw command output of the runs quoted above
 ```

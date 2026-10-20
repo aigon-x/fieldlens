@@ -1,13 +1,13 @@
 """AWS Lambda entry point: image in -> defect JSON out.
 
-Supports two event shapes:
+Supports three event shapes:
 
 * API Gateway HTTP API / REST proxy (`event["body"]`, optional `isBase64Encoded`),
-* direct invocation `{"image_base64": "..."}` or `{"image_b64": "..."}`.
+* direct invocation `{"image_base64": "..."}` or `{"image_b64": "..."}`,
+* S3 `ObjectCreated` notifications (`Records[0].s3...`), read with boto3.
 
-S3 object input is intentionally *not* implemented here: it would need boto3, which is
-not part of this package. Such an event returns 501 with an explicit message instead of
-pretending to succeed.
+boto3 is bundled with the AWS Lambda Python runtime; a local interpreter without it
+returns 501 with an explicit message instead of pretending to succeed.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 from typing import Any
+from urllib.parse import unquote_plus
 
 from fieldlens import __version__
 from fieldlens.annotate import annotate
@@ -30,6 +31,46 @@ HEADERS = {
 
 def _response(status: int, payload: dict[str, Any]) -> dict[str, Any]:
     return {"statusCode": status, "headers": HEADERS, "body": json.dumps(payload)}
+
+
+def _s3_client():
+    """Import boto3 lazily so environments without it stay importable."""
+    import boto3
+
+    return boto3.client("s3")
+
+
+def _handle_s3(event: dict[str, Any]) -> dict[str, Any]:
+    records = event.get("Records") or []
+    record = records[0] if isinstance(records, list) and records else {}
+    s3 = record.get("s3") if isinstance(record, dict) else None
+    bucket = ((s3 or {}).get("bucket") or {}).get("name")
+    key = unquote_plus(((s3 or {}).get("object") or {}).get("key") or "")
+    if not bucket or not key:
+        return _response(400, {"error": "S3 event requires Records[0].s3.bucket.name and object.key"})
+
+    try:
+        client = _s3_client()
+    except ImportError:
+        return _response(
+            501,
+            {
+                "error": "S3 input requires boto3, which is not installed in this runtime",
+                "hint": "the AWS Lambda Python runtime bundles boto3; locally: pip install boto3",
+            },
+        )
+
+    try:
+        data = client.get_object(Bucket=bucket, Key=key)["Body"].read()
+    except Exception as exc:  # noqa: BLE001 - report the AWS error, never a silent success
+        return _response(502, {"error": f"S3 read failed for s3://{bucket}/{key}: {exc}"})
+
+    try:
+        payload = inspect_bytes(data)
+    except ImageDecodeError as exc:
+        return _response(400, {"error": str(exc)})
+    payload["source"] = {"bucket": bucket, "key": key}
+    return _response(200, payload)
 
 
 def inspect_bytes(data: bytes, include_mask: bool = False, max_dim: int | None = None) -> dict[str, Any]:
@@ -49,15 +90,8 @@ def handler(event: dict, context: Any = None) -> dict[str, Any]:  # noqa: ARG001
     if not isinstance(event, dict):
         return _response(400, {"error": "event must be an object"})
 
-    # S3 notification shape -> explicit refusal, no silent stub.
     if "Records" in event or "s3" in event:
-        return _response(
-            501,
-            {
-                "error": "S3 input is not implemented in this Lambda package",
-                "hint": "POST the image bytes (base64) or add a boto3 fetch step before calling fieldlens",
-            },
-        )
+        return _handle_s3(event)
 
     query = event.get("queryStringParameters") or {}
     include_mask = str(query.get("include_mask", event.get("include_mask", ""))).lower() in ("1", "true", "yes")

@@ -9,7 +9,7 @@ Deadline: **2026-10-27**
 | Opis zgłoszenia | DONE | DEVPOST_DRAFT.md |
 | Licencja MIT w repo | DONE | LICENSE |
 | Architektura | DONE | ARCHITECTURE.md |
-| Tech sponsora | DONE (offline) | OpenCV 4.13 (plan migracji do 5) + AWS Lambda handler |
+| Tech sponsora | DONE (offline) | OpenCV 5.0.0 (pin `==5.0.0.93`) + SAM template (nie wdrożony) |
 | Repo publiczne | DONE | https://github.com/aigon-x/fieldlens.git |
 | Demo publiczne (URL) | BLOKADA: zgoda Suwerena | wymaga wdrożenia |
 | Wideo (<3 min) | BRAK | do nagrania po decyzji Suwerena |

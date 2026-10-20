@@ -10,8 +10,13 @@ a difference-of-Gaussians blob detector, a center-surround disk for faint stains
 orientation-steered line kernels for scratches) are standardised against each image's own
 noise floor, so the same thresholds work on a bright and a dull plate. It runs as a CLI,
 as an HTTP service, and as an AWS Lambda handler, and it ships with a deterministic
-synthetic benchmark with pixel-accurate ground truth: **precision 0.90 / recall 0.95 /
-F1 0.93 on 40 plates, zero false positives on clean plates**.
+synthetic benchmark with pixel-accurate ground truth. At seed 7000 it measures
+**F1 0.809 at IoU 0.25 and F1 0.662 at IoU 0.50** (no containment rule), plus 0.927
+when a detection contained in the ground-truth box is also accepted. Over six
+independent seed bases the pure-IoU F1 ranges are 0.736-0.860 at IoU 0.25 and
+0.574-0.678 at IoU 0.50. Clean plates are not guaranteed false-positive free: 3 false
+positives were measured on 36 clean plates across those seeds. All three matchers and
+the whole seed range are printed by every benchmark run.
 
 ## Inspiration
 
@@ -51,8 +56,9 @@ Outputs: JSON, annotated image, mask. Same engine behind `POST /inspect` and beh
 
 ## How we built it
 
-* **Pure Python + OpenCV + numpy.** No model weights, no GPU, no network calls. The
-  Lambda image is `public.ecr.aws/lambda/python:3.12` + `opencv-python-headless`.
+* **Pure Python + OpenCV 5 + numpy.** No model weights, no GPU, no network calls. The
+  pinned engine is `opencv-python-headless==5.0.0.93` (`cv2.__version__ == "5.0.0"`); the
+  Lambda image is `public.ecr.aws/lambda/python:3.12` plus that requirement.
 * **The benchmark came first.** `fieldlens/synth.py` renders deterministic plates from a
   seed — illumination gradient, vignetting, brushed/speckled/cast texture, sensor noise,
   and 0-3 defects with known geometry. Ground truth is measured from the *drawn mask*, not
@@ -64,12 +70,12 @@ Outputs: JSON, annotated image, mask. Same engine behind `POST /inspect` and beh
     bridges), removed;
   * full-resolution median background → stains erased, stain recall 0.27;
   * downscaled background → stain recall 0.87, F1 0.89 (same channels);
-  * adding the disk channel → stain recall 0.93, F1 0.93, and disabling just that channel
-    drops F1 back to 0.892.
+  * adding the disk channel → stain recall 0.93, F1 0.927 on the primary matcher, and
+    disabling just that channel drops F1 back to 0.892.
 * **Failure modes are tested, not assumed.** Clean plate must report zero; a blind detector
   must score F1 = 0 (so the metric provably reacts); garbage bytes must be a 400, not a
   silent success; an unimplemented S3 input must be a 501.
-* **44 tests** run in ~14 s with no network and no fixtures on disk.
+* **49 tests** run in ~21 s with no network and no fixtures on disk.
 
 ## Challenges we ran into
 
@@ -86,17 +92,20 @@ Outputs: JSON, annotated image, mask. Same engine behind `POST /inspect` and beh
   and passes low-frequency kernels efficiently. Per-channel RMS on the actual image was the
   honest scale.
 * **Thin-object evaluation.** A 2 px scratch has a bounding box 30x wider than its pixels;
-  strict IoU-0.5 matching calls a correct detection a miss. We use IoU ≥ 0.25 or
-  containment ≥ 0.6, and we say so in the README instead of hiding it.
+  strict IoU-0.5 matching calls a correct detection a miss. We report three rules side by
+  side — IoU 0.25, IoU 0.50 and the contained-core variant — instead of quoting only the
+  flattering one.
 * **A false positive at x = 0** from convolution borders, found only because the clean-plate
   test was strict. Fixed by rejecting components that touch the frame edge, with the cost
   (no edge defects) written down.
 
 ## Accomplishments that we're proud of
 
-* A defect detector with **no learned parameters** that reaches **F1 0.93** with **zero
-  false positives on clean plates** at 40 images, and stays above the 0.80 gate on
-  independent seeds (0.896 / 0.927 / 0.848).
+* A detector with **no learned parameters** that reaches **F1 0.809 at IoU 0.25 and
+  0.662 at IoU 0.50** at seed 7000, reported together with the six-seed ranges
+  (0.736-0.860 and 0.574-0.678) instead of the best seed alone.
+* A benchmark that counts what hurts: **3 false positives on 36 clean plates** across
+  the seed sweep, disclosed rather than claimed away.
 * A benchmark that is **reproducible byte-for-byte** from a seed, with ground truth that
   cannot be reverse-engineered from the code that draws the defects.
 * **Three deployment surfaces** (CLI, FastAPI, Lambda) over one engine, with all three
@@ -125,22 +134,35 @@ Outputs: JSON, annotated image, mask. Same engine behind `POST /inspect` and beh
    known-good plates per part number, instead of a global constant.
 3. **Colour stains.** Inspect chroma channels (Lab a/b) for oil and coolant residues that
    are invisible in grayscale.
-4. **S3 + Step Functions path.** The Lambda currently refuses S3 events with a 501; wiring
-   boto3 and an S3 trigger is a small, well-defined addition.
-5. **OpenCV 5.** The API surface is small and pinned; the migration checklist in
-   `ARCHITECTURE.md` is the plan, and the benchmark's determinism makes regression visible.
+4. **Deploy the SAM stack.** `template.yaml` defines the function, the HTTP API and an
+   S3 trigger, and the handler now reads S3 objects with boto3. It has not been deployed;
+   `scripts/deploy_aws.sh` is the real path and requires AWS credentials.
+5. **Metric improvements.** Raise IoU 0.50 F1 (currently 0.662 at seed 7000) and pure
+   IoU 0.25 F1 (0.809) by fitting boxes to the scratch core instead of its response
+   envelope.
 6. **Throughput.** Batch the filter bank across images and move the eight line angles into
    one `filter2D` call with a stacked kernel for line-rate inspection.
 
 ## Built with
 
-Python 3.12 · OpenCV 4.13 (`opencv-python-headless`) · NumPy 2.5 · FastAPI · Uvicorn ·
-pytest · AWS Lambda container base image (Dockerfile included, not built here)
+Python 3.12 · OpenCV 5.0.0 (`opencv-python-headless==5.0.0.93`) · NumPy 2.4/2.5 · FastAPI ·
+Uvicorn · pytest · AWS SAM (`template.yaml`) · AWS Lambda container base image
+(Dockerfile included, not built here)
+
+## Deployment status
+
+`template.yaml` is an AWS SAM template with the Lambda function (`lambda_handler.handler`,
+python3.12, 2048 MB, 30 s), an HTTP API `POST /inspect`, and an S3 `.png` upload trigger.
+**It has not been deployed.** No AWS credentials were available, so no bucket, function,
+API Gateway or CloudFormation stack exists, and there is no public demo URL.
+`scripts/deploy_aws.sh` refuses to run without credentials instead of pretending to
+deploy; the S3 path is covered by unit tests with a stubbed client only.
 
 ## Links
 
 * Repository: `https://github.com/aigon-x/fieldlens`
-* Demo video: `<VIDEO_URL>` (placeholder)
+* Demo video: `<VIDEO_URL>` (not recorded yet)
+* Public demo URL: none — the AWS deployment has not been performed
 * Benchmark report: `EVIDENCE.md` in the repository
 
 ## Try it
