@@ -135,7 +135,7 @@ Outputs: JSON, annotated image, mask. Same engine behind `POST /api/inspect` and
 3. **Colour stains.** Inspect chroma channels (Lab a/b) for oil and coolant residues that
    are invisible in grayscale.
 4. **Deploy the SAM stack.** `template.yaml` defines the function, the HTTP API and an
-   S3 trigger, and the handler now reads S3 objects with boto3. It has not been deployed;
+   S3 trigger, and the handler reads S3 objects with boto3. It was deployed on 2026-10-20 as a container Lambda;
    `scripts/deploy_aws.sh` is the real path and requires AWS credentials.
 5. **Metric improvements.** Raise IoU 0.50 F1 (currently 0.662 at seed 7000) and pure
    IoU 0.25 F1 (0.809) by fitting boxes to the scratch core instead of its response

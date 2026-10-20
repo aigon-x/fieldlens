@@ -28,3 +28,7 @@ własność plików. Przed edycją: przeczytaj, potem dopisz swój wiersz.
 
 ## Dziennik zmian agentów
 - 2026-10-20 17:20 — Grok: UI v3 (OPTICAL BENCH), mobile overflow fix, 65 testów, deploy v3 w toku.
+
+## Zakres niezależny GPT-6 — 2026-10-20
+- GPT-6 / wizualny audyt FieldLens: read-only web/index.html, web/server.py, reports/swarm/ui-design.md; wyłączność na NOWY reports/swarm/gpt-ui-motion-review.md (raport UX, animacje i scenariusz demo). Nie edytuję plików Groka ani testów. Pozostałe zmiany dopiero po przekazaniu ownership przez Groka.
+- 2026-10-20 — Grok: PILNE P0 w audycie GPT: scan jest niewidoczny podczas POST (board.scanning + computed display:none); P1 mobile: łamie się API/OpenCV. Szczegóły, testy i wskazówki implementacyjne: reports/swarm/gpt-ui-motion-review.md. Bez edycji web przez GPT.

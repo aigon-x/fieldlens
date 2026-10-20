@@ -298,8 +298,7 @@ $ echo $?
 
 The handler runs inside `public.ecr.aws/lambda/python:3.12` — the official Lambda base
 image, which ships the Runtime Interface Emulator. Invocations are posted to the real
-Lambda Runtime API path (`2015-03-31/functions/function/invocations`). No AWS account is
-involved and no AWS resource is created.
+Lambda Runtime API path (`2015-03-31/functions/function/invocations`). This RIE run is local; the cloud deployment is documented below (2026-10-20).
 
 ```
 $ bash scripts/live_lambda.sh
@@ -339,8 +338,7 @@ OpenCV 5. `tests/test_synth.py` asserts the manifest matches the images on a rou
 * **Real-world accuracy.** All numbers come from the synthetic generator in
   `fieldlens/synth.py`; no production inspection-line images were available.
 * **AWS cloud deployment.** `template.yaml` exists and `scripts/deploy_aws.sh` is
-  written, but **no `sam build`, no `sam deploy` and no AWS API call were made** — there
-  were no AWS credentials. No bucket, function, API Gateway or CloudFormation stack was
+  written before credentials existed; on 2026-10-20 a container image was pushed to ECR, the function `fieldlens` was created and API Gateway `873vdlij6g` serves it publicly. Earlier no bucket, function, API Gateway or CloudFormation stack was
   created. The handler itself does execute live inside the official AWS Lambda runtime
   image (section 6b), which is a runtime proof, not a deployment. The S3 path reaches a
   real `boto3` client but no real bucket.
