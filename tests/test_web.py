@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 
 from fastapi.testclient import TestClient
 
@@ -80,3 +81,58 @@ def test_sample_endpoint_refuses_anything_outside_the_directory() -> None:
     """The name is matched against the listing, never joined into a path."""
     for name in ("..%2F..%2FREADME.md", "missing.png", "%2E%2E%2Fserver.py"):
         assert client.get(f"/api/sample/{name}").status_code == 404
+
+
+HEX6 = re.compile(r"#([0-9a-fA-F]{6})")
+
+
+def _root_tokens(html: str) -> dict[str, str]:
+    root = re.search(r":root\{(.*?)\}", html, re.S)
+    assert root, "the :root token block is missing"
+    return {f"--{name}": value.strip() for name, value in
+            re.findall(r"--([a-z0-9-]+)\s*:\s*([^;]+);", root.group(1))}
+
+
+def _rule(html: str, selector: str) -> str:
+    match = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", html)
+    assert match, f"CSS rule {selector} is missing"
+    return match.group(1)
+
+
+def _channel(value: int) -> float:
+    c = value / 255
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _luminance(color: str) -> float:
+    parsed = HEX6.fullmatch(color)
+    assert parsed, f"expected a six-digit hex colour, got {color!r}"
+    digits = parsed.group(1)
+    r, g, b = (int(digits[i:i + 2], 16) for i in (0, 2, 4))
+    return 0.2126 * _channel(r) + 0.7152 * _channel(g) + 0.0722 * _channel(b)
+
+
+def _contrast(foreground: str, background: str) -> float:
+    hi, lo = sorted((_luminance(foreground), _luminance(background)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_secondary_text_meets_wcag_aa_on_every_surface() -> None:
+    """Faint text is 11-12.5 px, so SC 1.4.3 requires 4.5:1 on each surface it lands on."""
+    html = client.get("/").text
+    tokens = _root_tokens(html)
+    for surface in ("--bg", "--panel", "--panel-2", "--panel-3"):
+        ratio = _contrast(tokens["--faint"], tokens[surface])
+        assert ratio >= 4.5, f"--faint on {surface} is {ratio:.2f}:1, below 4.5:1"
+
+
+def test_white_labels_sit_on_the_darker_accent() -> None:
+    """White on --accent is 3.81:1; every white-labelled surface must use --accent-ink."""
+    html = client.get("/").text
+    tokens = _root_tokens(html)
+    for token in ("--accent-ink", "--accent-ink-hover"):
+        ratio = _contrast("#ffffff", tokens[token])
+        assert ratio >= 4.5, f"white on {token} is {ratio:.2f}:1, below 4.5:1"
+    for selector, token in ((".skip-link", "--accent-ink"), (".btn-accent", "--accent-ink"),
+                            (".btn-accent:hover", "--accent-ink-hover")):
+        assert f"var({token})" in _rule(html, selector), f"{selector} lost {token}"

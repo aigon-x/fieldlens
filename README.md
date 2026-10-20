@@ -77,11 +77,16 @@ curl -X POST --data-binary @samples/images/plate_0003_seed7403.png \
 # regenerate the synthetic dataset (images + ground_truth.json)
 python3 -m fieldlens synth --out samples --n 8 --seed 7400
 
-# tests (58, ~40 s)
+# tests (60, ~40 s)
 python3 -m pytest tests -q
 ```
 
 `./demo.sh` runs the whole loop in one command.
+
+The inspector is keyboard-operable (dropzone, sample button, keyboard focus rings) and its
+secondary text meets WCAG AA: faint labels measure 5.25:1 on the panel colour, the
+white-on-accent buttons 5.13:1, and `tests/test_web.py` fails the build if either drops
+below 4.5:1.
 
 ### API
 

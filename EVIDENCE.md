@@ -76,6 +76,11 @@ in 16.53s`; the count and result were identical, the timing varies with host loa
 garbage bytes must raise, a blind detector must score F1 = 0, an S3 event without boto3
 must return 501, and a malformed S3 record must return 400.
 
+Re-measured 2026-10-20 after the accessibility change: `60 passed in 19.59s` (58 before,
++2 contrast tests). The suite now pins `--basetemp=.pytest-tmp` inside the project: on that
+day the host's `/tmp` tmpfs was 100% full and two `tmp_path` tests failed with `ENOSPC`
+through no fault of the code, so scratch space no longer depends on a shared mount.
+
 ## 2. Benchmark, seed 7000 (40 plates, 5 clean)
 
 ```
@@ -398,3 +403,34 @@ container stayed `display:none` because its state class was never toggled — fi
 
 Not proven: load/concurrency behaviour (single client only), real inspection-line images,
 and rendering in WebKit or Firefox.
+
+### 9b. Text contrast (WCAG 2.1 AA)
+
+Secondary text — `.hint`, `.meta`, `.formats`, `.empty-note`, `.defect .idx`, the footer and
+the summary line — used `--faint:#6b7686`. Measured against the surfaces it lands on, that is
+**3.94:1** on `--panel` and **3.59:1** on `--panel-2`, below the 4.5:1 that SC 1.4.3 requires
+at 11–12.5 px. White labels sat on `--accent:#4c82d9`, which measures **3.81:1**.
+
+Change: `--faint` is now `#7f8b9c` (**5.25:1** on `--panel`, **4.79:1** on `--panel-2`) and
+every white-labelled surface (`.skip-link`, `.btn-accent`) moved to `--accent-ink:#2f6bcc`
+(**5.13:1**; hover `#356fc9` **4.92:1**). `--accent` is unchanged for outlines and for the
+z-score text, which already read at 4.75:1.
+
+Measured in Chromium 155 against the running page, not against the stylesheet by hand:
+
+```
+hint     fg=rgb(127,139,156) bg=rgb(5,7,10)   ratio=5.83:1
+formats  fg=rgb(127,139,156) bg=rgb(13,17,22) ratio=5.48:1
+summary  fg=rgb(127,139,156) bg=rgb(5,7,10)   ratio=5.83:1
+score    fg=rgb(76,130,217)  bg=rgb(5,7,10)   ratio=5.28:1
+sample click -> "1 region flagged on this plate." | 1 list row | 0 console errors
+390x844 viewport -> no horizontal overflow
+```
+
+Frames: `evidence/webui-contrast-desktop.png`, `evidence/webui-contrast-result.png`,
+`evidence/webui-contrast-mobile.png`.
+
+Regression: `tests/test_web.py::test_secondary_text_meets_wcag_aa_on_every_surface` and
+`::test_white_labels_sit_on_the_darker_accent` parse the `:root` tokens from the served page
+and fail below 4.5:1. Ablation: putting `--faint:#6b7686` and `--accent-ink:#4c82d9` back
+turns both tests red (2 failed); the shipped values turn them green.
