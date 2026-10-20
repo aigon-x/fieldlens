@@ -371,7 +371,7 @@ matched against the directory listing, never joined into a path — an unknown n
 
 Browser check (Playwright 1.62, 1280x900): page load → `#sampleBtn` visible → click →
 `#board.is-visible`, summary "1 region flagged on this plate.", 1 item in `#defectList`,
-0 console errors, screenshot retained for the submission.
+0 console errors; the frame is committed as `evidence/webui-sample.png`.
 
 `POST /api/inspect` returns `{"defects":[{"type","score","box":[x,y,w,h]}],"count":N,
 "annotated_png_base64":"..."}` plus `image_size`, `elapsed_ms` and `version`. Garbage bytes
