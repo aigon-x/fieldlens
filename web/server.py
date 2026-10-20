@@ -109,6 +109,11 @@ def create_app() -> FastAPI:
             "count": len(result.defects),
             "annotated_png_base64": base64.b64encode(annotated).decode("ascii"),
             "input_quality": assess(image).as_dict(),
+            "thresholds": {
+                "log": DEFAULT_PARAMS.log_thresholds[0],
+                "dog": DEFAULT_PARAMS.dog_threshold,
+                "disk": DEFAULT_PARAMS.disk_threshold,
+            },
             "image_size": list(result.image_size),
             "elapsed_ms": round(float(result.elapsed_ms), 2),
             "version": __version__,

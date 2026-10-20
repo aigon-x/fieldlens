@@ -158,6 +158,11 @@ canvas{display:block; width:100%; height:auto; max-height:62vh; object-fit:conta
 .metric{background:var(--panel-2); padding:11px 13px}
 .metric b{display:block; font:600 15px/1.2 var(--mono); letter-spacing:-.01em}
 .metric span{display:block; font:10px/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin-top:3px}
+@media (max-width:600px){
+  .topbar{flex-direction:column; align-items:flex-start; gap:10px}
+  .status{width:100%; justify-content:space-between; white-space:nowrap; gap:8px}
+  .brand p{display:none}
+}
 @media (max-width:520px){ .metrics{grid-template-columns:repeat(2,1fr)} }
 
 /* states */
@@ -197,6 +202,11 @@ canvas{display:block; width:100%; height:auto; max-height:62vh; object-fit:conta
 .panel-head{flex-wrap:wrap}
 .chip{max-width:100%; overflow:hidden; text-overflow:ellipsis}
 canvas{max-width:100%}
+@media (max-width:600px){
+  .topbar{flex-direction:column; align-items:flex-start; gap:10px}
+  .status{width:100%; justify-content:space-between; white-space:nowrap; gap:8px}
+  .brand p{display:none}
+}
 @media (max-width:520px){
   .brand h1{font-size:17px}
   .brand p{font-size:9px; letter-spacing:.1em}
@@ -205,6 +215,14 @@ canvas{max-width:100%}
   .stage-tools{flex-wrap:wrap}
   .foot{font-size:10px}
 }
+/* ambient motion: the bench is alive, but never distracting */
+body::after{animation:gridDrift 36s linear infinite}
+@keyframes gridDrift{from{background-position:0 0,0 0}to{background-position:64px 64px,64px 64px}}
+.shell::before{content:""; position:fixed; inset:-20% -10% auto; height:60vh; pointer-events:none; z-index:0;
+  background:conic-gradient(from 210deg at 50% 0%, transparent 0deg, rgba(90,162,255,.07) 18deg, transparent 40deg);
+  animation:sweep 14s ease-in-out infinite}
+@keyframes sweep{0%,100%{transform:rotate(-4deg); opacity:.5}50%{transform:rotate(4deg); opacity:.9}}
+@media (prefers-reduced-motion: reduce){ body::after,.shell::before{animation:none} }
 </style>
 </head>
 <body>
@@ -220,7 +238,7 @@ canvas{max-width:100%}
     <div class="status">
       <span class="led" id="apiChip"><i></i><span id="apiChipText">API · …</span></span>
       <span class="clock" id="clock">--:--:--</span>
-      <span>v1.2.0</span>
+      <span>v1.4.0</span>
     </div>
   </header>
 
@@ -306,7 +324,7 @@ canvas{max-width:100%}
 
   <footer class="foot">
     <span>Processed on this host · nothing is stored. Endpoint <code>POST /api/inspect</code>.</span>
-    <span>OpenCV 5 matched-filter pipeline · boxes are (x, y, w, h) px</span>
+    <span>OpenCV 5 matched-filter pipeline · boxes are (x, y, w, h) px · build 2026-10-20T20:05Z</span>
   </footer>
 </div>
 
@@ -445,17 +463,24 @@ canvas{max-width:100%}
     });
   }
 
-  function drawBoxes(ctx, defects, width, height) {
+  const state = { payload: null, image: null, selected: -1, hidden: new Set() };
+  const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function frame(defect, index, ctx, width, height, opts = {}) {
+    const [x, y, w, h] = defect.box.map(Number);
+    const color = COLORS[defect.type] || "#8b96a6";
     const unit = Math.max(1, Math.round(Math.max(width, height) / 900));
-    const font = Math.max(11, Math.round(Math.max(width, height) / 55));
-    ctx.font = `600 ${font}px "JetBrains Mono", ui-monospace, monospace`;
-    ctx.textBaseline = "top";
-    defects.forEach((defect, index) => {
-      const [x, y, w, h] = defect.box.map(Number);
-      const color = COLORS[defect.type] || "#8b96a6";
-      ctx.lineWidth = 2 * unit;
-      ctx.strokeStyle = color;
-      ctx.strokeRect(x, y, w, h);
+    ctx.save();
+    ctx.globalAlpha = opts.alpha ?? 1;
+    ctx.lineWidth = (opts.selected ? 3.2 : 2) * unit;
+    ctx.strokeStyle = color;
+    ctx.setLineDash(opts.dash ? [opts.dash, opts.dash * 0.8] : []);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+    if (opts.label !== false) {
+      const font = Math.max(11, Math.round(Math.max(width, height) / 55));
+      ctx.font = `600 ${font}px "JetBrains Mono", ui-monospace, monospace`;
+      ctx.textBaseline = "top";
       const text = `${index + 1} ${defect.type} z${Number(defect.score).toFixed(1)}`;
       const tw = ctx.measureText(text).width;
       const th = font + 8 * unit;
@@ -466,15 +491,71 @@ canvas{max-width:100%}
       ctx.fillRect(tx, ty, tw + 10 * unit, th);
       ctx.fillStyle = "#05080d";
       ctx.fillText(text, tx + 5 * unit, ty + 4 * unit);
+    }
+    if (opts.selected) {
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w, h);
+    }
+    ctx.restore();
+  }
+
+  function redraw(selected = state.selected) {
+    if (!state.image || !state.payload) return;
+    const ctx = el.canvas.getContext("2d");
+    ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
+    ctx.drawImage(state.image, 0, 0);
+    state.payload.defects.forEach((defect, index) => {
+      if (state.hidden.has(defect.type)) return;
+      frame(defect, index, ctx, el.canvas.width, el.canvas.height, { selected: index === selected });
     });
+  }
+
+  function animateReveal() {
+    if (!state.payload || reduceMotion()) { redraw(); return Promise.resolve(); }
+    const ctx = el.canvas.getContext("2d");
+    const width = el.canvas.width;
+    const height = el.canvas.height;
+    const duration = 220;
+    return new Promise((resolve) => {
+      const started = performance.now();
+      const step = (now) => {
+        const t = Math.min(1, (now - started) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(state.image, 0, 0);
+        state.payload.defects.forEach((defect, index) => {
+          if (state.hidden.has(defect.type)) return;
+          frame(defect, index, ctx, width, height, { alpha: eased, dash: (1 - eased) * 18 });
+        });
+        if (t < 1) requestAnimationFrame(step);
+        else resolve();
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
+  function select(index) {
+    state.selected = index;
+    [...el.defectList.children].forEach((row) => {
+      const on = Number(row.dataset.index) === index;
+      row.classList.toggle("is-selected", on);
+      row.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    redraw(index);
   }
 
   function renderList(defects) {
     el.defectList.replaceChildren();
     defects.forEach((defect, index) => {
+      if (state.hidden.has(defect.type)) return;
       const item = document.createElement("li");
       item.className = "defect";
-      item.style.setProperty("--i", String(index));
+      item.tabIndex = 0;
+      item.dataset.index = String(index);
+      item.style.setProperty("--i", String(Math.min(index, 4)));
+      item.setAttribute("aria-label",
+        `${defect.type} at x${defect.box[0]} y${defect.box[1]}, score ${Number(defect.score).toFixed(1)}`);
       const idx = document.createElement("span");
       idx.className = "idx";
       idx.textContent = String(index + 1).padStart(2, "0");
@@ -496,45 +577,57 @@ canvas{max-width:100%}
       score.className = "score";
       score.textContent = `z ${Number(defect.score).toFixed(1)}`;
       item.append(idx, body, score);
+      const pick = () => select(index);
+      item.addEventListener("mouseenter", pick);
+      item.addEventListener("focus", pick);
+      item.addEventListener("click", pick);
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(); }
+      });
       el.defectList.append(item);
     });
   }
 
   async function render(file, payload) {
+    state.payload = payload;
+    state.selected = -1;
+    state.hidden = new Set();
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = URL.createObjectURL(file);
     const img = await loadImage(objectUrl);
+    state.image = img;
     el.canvas.width = img.naturalWidth;
     el.canvas.height = img.naturalHeight;
-    const ctx = el.canvas.getContext("2d");
-    ctx.drawImage(img, 0, 0);
-    drawBoxes(ctx, payload.defects, img.naturalWidth, img.naturalHeight);
+    el.canvas.getContext("2d").drawImage(img, 0, 0);
 
     const count = Number.isFinite(payload.count) ? payload.count : payload.defects.length;
     const elapsed = Number.isFinite(payload.elapsed_ms) ? `${Math.round(payload.elapsed_ms)} ms` : "—";
-    el.countValue.textContent = String(count);
-    el.countValue.classList.remove("pop");
-    void el.countValue.offsetWidth;
-    el.countValue.classList.add("pop");
-    el.countLabel.textContent = count === 1 ? "defect" : "defects";
+    const threshold = payload.thresholds ? payload.thresholds.log : "—";
     el.summaryText.textContent = count === 0
-      ? "No defects found — the surface is clean."
+      ? `PASS — no defects detected under current thresholds (z ≥ ${threshold}).`
       : `${count} region${count === 1 ? "" : "s"} flagged on this plate.`;
     el.engineHint.textContent = elapsed;
     el.meta.textContent = `${img.naturalWidth}×${img.naturalHeight} px · ${elapsed}`;
     el.mRes.textContent = `${img.naturalWidth}×${img.naturalHeight}`;
     el.mTime.textContent = elapsed;
     el.mCount.textContent = String(count);
+
     renderList(payload.defects);
+    setState("result");
+    await animateReveal();
+
+    el.countValue.textContent = String(count);
+    el.countValue.classList.remove("pop");
+    void el.countValue.offsetWidth;
+    if (!reduceMotion()) el.countValue.classList.add("pop");
     el.emptyNote.hidden = count > 0;
-    el.emptyNote.textContent = count > 0 ? "" : "No findings — the surface looks clean.";
+    el.emptyNote.textContent = count > 0 ? "" : `No findings — thresholds z ≥ ${threshold}.`;
     el.exportBtn.disabled = false;
     const quality = payload.input_quality;
     const ok = !quality || quality.in_domain !== false;
     el.mDomain.textContent = ok ? "in-domain" : "outside";
     el.domainWarn.hidden = ok;
     if (!ok) el.domainWarn.textContent = quality.message || "This input looks outside the calibrated domain.";
-    setState("result");
   }
 
   async function exportReport() {
@@ -603,6 +696,13 @@ canvas{max-width:100%}
   el.resetBtn.addEventListener("click", reset);
   el.retryBtn.addEventListener("click", reset);
   el.exportBtn.addEventListener("click", exportReport);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { select(-1); return; }
+    if (/^[1-9]$/.test(event.key) && state.payload) {
+      const index = Number(event.key) - 1;
+      if (index < state.payload.defects.length) select(index);
+    }
+  });
   el.board.addEventListener("mousemove", (event) => {
     const rect = el.board.getBoundingClientRect();
     el.crosshair.style.left = `${event.clientX - rect.left}px`;
