@@ -467,3 +467,13 @@ Regression: `tests/test_web.py::test_inspect_handler_runs_off_the_event_loop` (t
 endpoint must not be a coroutine) and `::test_slow_inspection_does_not_stall_the_api`
 (health latency under a four-request batch must stay below half the batch wall time).
 Ablation: making the handler `async` again turns both red.
+
+## Wdrożenie AWS (2026-10-20, live)
+- Obraz kontenera: `830393774429.dkr.ecr.eu-north-1.amazonaws.com/fieldlens:v1`
+- Funkcja Lambda `fieldlens` (PackageType Image, 2048 MB, timeout 60 s, x86_64), region eu-north-1,
+  stan `Active`, `LastUpdateStatus=Successful`.
+- Rola `fieldlens-lambda-exec` z `AWSLambdaBasicExecutionRole`.
+- Wywołanie przez SDK: `statusCode: 200`, body `{"samples":[...]}` — FastAPI + Mangum działa w Lambdzie.
+- Function URL: `https://h2mihukfj7v2qzbsevyul5w3fe0sipqx.lambda-url.eu-north-1.on.aws/`
+  (`AuthType=NONE`, polityka `lambda:InvokeFunctionUrl` dla `*`) — na chwilę obecną zwraca **403**;
+  publiczne demo działa pod adresem tunelu: `https://lets-parish-egg-bingo.trycloudflare.com`.
