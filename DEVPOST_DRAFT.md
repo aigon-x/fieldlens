@@ -139,7 +139,7 @@ pytest · AWS Lambda container base image (Dockerfile included, not built here)
 
 ## Links
 
-* Repository: `<REPO_URL>` (placeholder to be filled before submission)
+* Repository: `https://github.com/aigon-x/fieldlens`
 * Demo video: `<VIDEO_URL>` (placeholder)
 * Benchmark report: `EVIDENCE.md` in the repository
 
