@@ -147,16 +147,22 @@ Outputs: JSON, annotated image, mask. Same engine behind `POST /inspect` and beh
 
 Python 3.12 · OpenCV 5.0.0 (`opencv-python-headless==5.0.0.93`) · NumPy 2.4/2.5 · FastAPI ·
 Uvicorn · pytest · AWS SAM (`template.yaml`) · AWS Lambda container base image
-(Dockerfile included, not built here)
+(`Dockerfile` builds and runs locally on `public.ecr.aws/lambda/python:3.12`; no AWS account)
 
 ## Deployment status
 
 `template.yaml` is an AWS SAM template with the Lambda function (`lambda_handler.handler`,
 python3.12, 2048 MB, 30 s), an HTTP API `POST /inspect`, and an S3 `.png` upload trigger.
-**It has not been deployed.** No AWS credentials were available, so no bucket, function,
-API Gateway or CloudFormation stack exists, and there is no public demo URL.
+**No cloud deployment was made.** No AWS credentials were available, so no bucket,
+function, API Gateway or CloudFormation stack exists, and there is no public demo URL.
 `scripts/deploy_aws.sh` refuses to run without credentials instead of pretending to
-deploy; the S3 path is covered by unit tests with a stubbed client only.
+deploy.
+
+What did run is the function artifact: `scripts/live_lambda.sh` builds the image from the
+official `public.ecr.aws/lambda/python:3.12` base and invokes the handler over the Lambda
+Runtime API. Both input shapes return 200 with the same two defects, a malformed body
+returns 400, and the S3 branch reaches a real `boto3` client and fails closed with 502
+when no credentials exist. The recorded trace is `evidence/lambda-live-trace.json`.
 
 ## Links
 

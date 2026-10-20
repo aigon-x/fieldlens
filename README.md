@@ -123,7 +123,10 @@ without it returns **501** with an explicit message, never a silent success).
 for `.png` uploads to the generated bucket. `scripts/deploy_aws.sh` performs a real
 `sam build` + `sam deploy` and stops with an explicit error when AWS credentials are
 missing. **No AWS resource was created for this submission**: the template is written
-and the handler is exercised locally, but the deploy was not run.
+and the deploy was never pointed at an account. What does run is the function itself:
+`scripts/live_lambda.sh` builds the container image from `public.ecr.aws/lambda/python:3.12`
+and invokes the handler over the Lambda Runtime API, recording
+`evidence/lambda-live-trace.json`.
 
 ## The synthetic benchmark
 

@@ -247,7 +247,7 @@ $ curl -s -H 'Content-Type: application/json' --data-binary @out/request.json \
 
 The server was stopped after the calls; the log is not kept.
 
-## 6. Lambda handler (direct invoke, no AWS account involved)
+## 6. Lambda handler — local invoke and live execution in the AWS Lambda runtime
 
 ```
 $ python3 lambda_handler.py samples/images/plate_0003_seed7403.png
@@ -285,7 +285,32 @@ $ echo $?
 1
 ```
 
-The script was not run against AWS; see section 8.
+`deploy_aws.sh` was never executed against an AWS account; see section 8.
+
+### 6b. Live execution inside the AWS Lambda runtime image
+
+The handler runs inside `public.ecr.aws/lambda/python:3.12` — the official Lambda base
+image, which ships the Runtime Interface Emulator. Invocations are posted to the real
+Lambda Runtime API path (`2015-03-31/functions/function/invocations`). No AWS account is
+involved and no AWS resource is created.
+
+```
+$ bash scripts/live_lambda.sh
+api_gateway_base64           status=200 defects=2 613.2 ms
+direct_invoke                status=200 defects=2 249.6 ms
+malformed_body               status=400 defects=None 8.1 ms
+s3_event_without_credentials status=502 defects=None 2955.5 ms
+```
+
+What this proves: the packaged image imports OpenCV 5.0.0.93 and answers both the API
+Gateway and the direct-invoke shape with the counts of the local run (1 scratch, 1 dent);
+a garbage body is refused with 400; the S3 branch has `boto3` in the real runtime and
+fails closed with 502 `Unable to locate credentials`. 613 ms first call (init included),
+250 ms warm; the spread against earlier runs is host load.
+`evidence/lambda-live-trace.json` is the record of that run.
+
+What this does not prove: a cloud deployment. No bucket, function, HTTP API or
+CloudFormation stack exists in any AWS account.
 
 ## 7. Dataset generation
 
@@ -306,10 +331,12 @@ OpenCV 5. `tests/test_synth.py` asserts the manifest matches the images on a rou
 
 * **Real-world accuracy.** All numbers come from the synthetic generator in
   `fieldlens/synth.py`; no production inspection-line images were available.
-* **AWS deployment.** `template.yaml` exists and `scripts/deploy_aws.sh` is written, but
-  **no `sam build`, no `sam deploy` and no AWS API call were made** — there were no AWS
-  credentials. No bucket, function, API Gateway or CloudFormation stack was created. The
-  S3 path is tested only with a stubbed client.
+* **AWS cloud deployment.** `template.yaml` exists and `scripts/deploy_aws.sh` is
+  written, but **no `sam build`, no `sam deploy` and no AWS API call were made** — there
+  were no AWS credentials. No bucket, function, API Gateway or CloudFormation stack was
+  created. The handler itself does execute live inside the official AWS Lambda runtime
+  image (section 6b), which is a runtime proof, not a deployment. The S3 path reaches a
+  real `boto3` client but no real bucket.
 * **Kind classification quality.** `kind_accuracy` is 0.7778 at seed 7000: dents and
   stains are sometimes swapped. Detection metrics do not depend on the label.
 * **Concurrency / load behaviour of the API.** The endpoint is stateless and was

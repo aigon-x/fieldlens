@@ -1,0 +1,11 @@
+{
+ "runtime_image": "fieldlens-lambda:live",
+ "runtime_api": "2015-03-31/functions/function/invocations",
+ "aws_account": null,
+ "invocations": [
+  {"case":"api_gateway_base64","lambda_status":200,"elapsed_ms":613.2,"defect_count":2,"error":null},
+  {"case":"direct_invoke","lambda_status":200,"elapsed_ms":249.6,"defect_count":2,"error":null},
+  {"case":"malformed_body","lambda_status":400,"elapsed_ms":8.1,"defect_count":null,"error":"unsupported or corrupted image payload"},
+  {"case":"s3_event_without_credentials","lambda_status":502,"elapsed_ms":2955.5,"defect_count":null,"error":"S3 read failed for s3://fieldlens-plates-live/plates/plate.png: Unable to locate credentials"}
+ ]
+}
