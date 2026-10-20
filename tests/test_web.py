@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 import base64
+import inspect as pyinspect
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import httpx
+import uvicorn
 
 from fastapi.testclient import TestClient
 
@@ -136,3 +144,53 @@ def test_white_labels_sit_on_the_darker_accent() -> None:
     for selector, token in ((".skip-link", "--accent-ink"), (".btn-accent", "--accent-ink"),
                             (".btn-accent:hover", "--accent-ink-hover")):
         assert f"var({token})" in _rule(html, selector), f"{selector} lost {token}"
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_inspect_handler_runs_off_the_event_loop() -> None:
+    """CPU-bound work must go to the threadpool: an async handler stalls /api/health."""
+    route = next(r for r in create_app().routes if getattr(r, "path", "") == "/api/inspect")
+    assert not pyinspect.iscoroutinefunction(route.endpoint)
+
+
+def test_slow_inspection_does_not_stall_the_api() -> None:
+    """Four concurrent plates must not freeze the health probe the judge's page polls."""
+    server = uvicorn.Server(uvicorn.Config(create_app(), host="127.0.0.1", port=0,
+                                           log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert server.started, "the test server did not start"
+    port = server.servers[0].sockets[0].getsockname()[1]
+    sample = (ROOT / "samples" / "images" / "plate_0000_seed7400.png").read_bytes()
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=30) as client:
+            client.get("/api/health")
+            started = time.perf_counter()
+
+            def hit() -> int:
+                return client.post("/api/inspect",
+                                   files={"file": ("plate.png", sample, "image/png")}).status_code
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [pool.submit(hit) for _ in range(4)]
+                time.sleep(0.05)
+                latencies = []
+                for _ in range(6):
+                    probe = time.perf_counter()
+                    assert client.get("/api/health").status_code == 200
+                    latencies.append(time.perf_counter() - probe)
+                assert all(f.result() == 200 for f in futures)
+            wall = time.perf_counter() - started
+        # Blocking the loop made the probe wait for a whole inspection (ratio ~0.8);
+        # with the threadpool it is a small fraction of the batch.
+        assert wall > 0.05
+        assert max(latencies) < 0.5 * wall, (
+            f"health waited {max(latencies) * 1000:.0f} ms during a {wall * 1000:.0f} ms batch")
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)

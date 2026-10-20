@@ -51,10 +51,13 @@ def create_app() -> FastAPI:
         return FileResponse(SAMPLES_DIR / name, media_type="image/png")
 
     @app.post("/api/inspect")
-    async def inspect(file: UploadFile | None = File(default=None)) -> JSONResponse:
+    def inspect(file: UploadFile | None = File(default=None)) -> JSONResponse:
+        # Sync on purpose: decoding and the filter bank are CPU-bound (~100 ms per plate).
+        # FastAPI runs a def endpoint in its threadpool, so a slow plate cannot freeze
+        # /api/health or the next inspection; an async handler blocked the event loop.
         if file is None:
             raise HTTPException(status_code=400, detail="multipart field 'file' is required")
-        data = await file.read()
+        data = file.file.read()
         if not data:
             raise HTTPException(status_code=400, detail="empty upload")
         if len(data) > MAX_UPLOAD_BYTES:

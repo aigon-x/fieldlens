@@ -76,11 +76,12 @@ in 16.53s`; the count and result were identical, the timing varies with host loa
 garbage bytes must raise, a blind detector must score F1 = 0, an S3 event without boto3
 must return 501, and a malformed S3 record must return 400.
 
-Re-measured 2026-10-20 after the accessibility change: `60 passed in 19.59s` (58 before,
-+2 contrast tests). On that day the host's `/tmp` tmpfs was 100% full and `tmp_path` tests
-failed with `ENOSPC` through no fault of the code, so `tests/conftest.py` now gives each
-session its own scratch directory under `/var/tmp` (removed at exit) instead of relying on
-the shared mount.
+Re-measured 2026-10-20 after the concurrency change: `62 passed in 25.90s` — 60 before,
+plus the two event-loop tests. Earlier that day the accessibility change took the count
+from 58 to 60. On that day the host's `/tmp` tmpfs was 100% full and `tmp_path` tests failed
+with `ENOSPC` through no fault of the code, so `tests/conftest.py` now gives each session its
+own scratch directory under `/var/tmp` (removed at exit) instead of relying on the shared
+mount.
 
 ## 2. Benchmark, seed 7000 (40 plates, 5 clean)
 
@@ -345,8 +346,9 @@ OpenCV 5. `tests/test_synth.py` asserts the manifest matches the images on a rou
   real `boto3` client but no real bucket.
 * **Kind classification quality.** `kind_accuracy` is 0.7778 at seed 7000: dents and
   stains are sometimes swapped. Detection metrics do not depend on the label.
-* **Concurrency / load behaviour of the API.** The endpoint is stateless and was
-  exercised with a single client; no load test was run.
+* **Concurrency / load behaviour of the API.** A short concurrency probe is in section 9c
+  (eight simultaneous plates, single uvicorn worker). A sustained soak, multi-worker
+  deployment and real network latency are still not covered.
 * **A single F1 number.** At seed 7000: 0.927 with the contained-core rule, 0.809 at
   pure IoU 0.25, 0.662 at pure IoU 0.50; across seeds 0.836-0.930, 0.736-0.860 and
   0.574-0.678 respectively. None is a universal accuracy claim, and clean plates are not
@@ -402,8 +404,8 @@ error state for `bad.txt` (`"bad.txt" is not an image (text/plain).`), 0 console
 horizontal overflow at 480 px. The result-state check caught a real defect — the canvas
 container stayed `display:none` because its state class was never toggled — fixed before commit.
 
-Not proven: load/concurrency behaviour (single client only), real inspection-line images,
-and rendering in WebKit or Firefox.
+Not proven: sustained load (the probe in 9c is eight requests, not a soak), real
+inspection-line images, and rendering in WebKit or Firefox.
 
 ### 9b. Text contrast (WCAG 2.1 AA)
 
@@ -435,3 +437,33 @@ Regression: `tests/test_web.py::test_secondary_text_meets_wcag_aa_on_every_surfa
 `::test_white_labels_sit_on_the_darker_accent` parse the `:root` tokens from the served page
 and fail below 4.5:1. Ablation: putting `--faint:#6b7686` and `--accent-ink:#4c82d9` back
 turns both tests red (2 failed); the shipped values turn them green.
+
+### 9c. Concurrent requests — the inspection used to freeze the API
+
+`web/server.py` declared `async def inspect` and ran the whole decode plus filter bank
+inside it. The work is CPU-bound (~100 ms per plate), so it ran on the event loop and
+every other request waited. Method: one uvicorn worker, eight `POST /api/inspect` calls
+with the same 384×384 plate issued concurrently through `httpx`, then ten `GET /api/health`
+probes while they were in flight.
+
+```
+before (async handler):
+  inspect elapsed_ms: [127, 106, 99, 98, 97, 98, 96, 96]
+  8 inspects wall: 1185 ms
+  health during load: max=917 ms  median=3 ms
+
+after (def handler -> FastAPI threadpool):
+  inspect elapsed_ms: [461, 458, 347, 452, 509, 459, 389, 401]
+  8 inspects wall: 794 ms
+  health during load: max=47 ms  median=18 ms
+```
+
+The batch finishes sooner because the plates overlap, and the probe drops from 917 ms to
+47 ms — the page's API chip no longer flips to "unreachable" while a plate is being
+inspected. Per-request time rises (96–127 → 347–509 ms) because eight plates now share the
+same cores; that is the honest cost of concurrency, not a regression.
+
+Regression: `tests/test_web.py::test_inspect_handler_runs_off_the_event_loop` (the route
+endpoint must not be a coroutine) and `::test_slow_inspection_does_not_stall_the_api`
+(health latency under a four-request batch must stay below half the batch wall time).
+Ablation: making the handler `async` again turns both red.
