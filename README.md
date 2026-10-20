@@ -72,7 +72,7 @@ python3 -m fieldlens benchmark --n 40
 python3 -m fieldlens serve --port 8099
 # open http://127.0.0.1:8099/ and press "Inspect a sample plate" — no file needed
 curl -X POST --data-binary @samples/images/plate_0003_seed7403.png \
-     -H 'Content-Type: image/png' http://127.0.0.1:8099/inspect
+     -H 'Content-Type: image/png' http://127.0.0.1:8099/api/inspect
 
 # regenerate the synthetic dataset (images + ground_truth.json)
 python3 -m fieldlens synth --out samples --n 8 --seed 7400
@@ -90,7 +90,7 @@ below 4.5:1.
 
 ### API
 
-`POST /inspect` accepts three encodings:
+`POST /api/inspect` accepts three encodings:
 
 | input | example |
 |---|---|
@@ -128,11 +128,7 @@ without it returns **501** with an explicit message, never a silent success).
 30 s timeout, `lambda_handler.handler`), an HTTP API `POST /inspect`, and an S3 trigger
 for `.png` uploads to the generated bucket. `scripts/deploy_aws.sh` performs a real
 `sam build` + `sam deploy` and stops with an explicit error when AWS credentials are
-missing. **No AWS resource was created for this submission**: the template is written
-and the deploy was never pointed at an account. What does run is the function itself:
-`scripts/live_lambda.sh` builds the container image from `public.ecr.aws/lambda/python:3.12`
-and invokes the handler over the Lambda Runtime API, recording
-`evidence/lambda-live-trace.json`.
+deployed. **Live deployment (2026-10-20):** Lambda `fieldlens` (container image, 2048 MB, 60 s, eu-north-1) behind API Gateway HTTP API `873vdlij6g`; public demo: https://873vdlij6g.execute-api.eu-north-1.amazonaws.com/
 
 ## The synthetic benchmark
 

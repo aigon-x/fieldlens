@@ -12,6 +12,7 @@ from fieldlens import __version__
 from fieldlens.annotate import annotate
 from fieldlens.detect import DEFAULT_PARAMS, inspect_array
 from fieldlens.imageio import ImageDecodeError, decode_image, encode_png
+from fieldlens.quality import assess
 
 WEB_DIR = Path(__file__).resolve().parent
 INDEX_HTML = WEB_DIR / "index.html"
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
             ],
             "count": len(result.defects),
             "annotated_png_base64": base64.b64encode(annotated).decode("ascii"),
+            "input_quality": assess(image).as_dict(),
             "image_size": list(result.image_size),
             "elapsed_ms": round(float(result.elapsed_ms), 2),
             "version": __version__,

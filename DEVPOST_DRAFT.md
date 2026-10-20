@@ -51,7 +51,7 @@ Given an image (path, bytes, base64 or multipart), FieldLens:
 6. **Labels and reports** — scratch / dent / stain, bounding boxes in original pixel
    coordinates, contrast in noise units, a binary mask, and an annotated PNG.
 
-Outputs: JSON, annotated image, mask. Same engine behind `POST /inspect` and behind
+Outputs: JSON, annotated image, mask. Same engine behind `POST /api/inspect` and behind
 `lambda_handler.handler`.
 
 ## How we built it
@@ -147,14 +147,15 @@ Outputs: JSON, annotated image, mask. Same engine behind `POST /inspect` and beh
 
 Python 3.12 · OpenCV 5.0.0 (`opencv-python-headless==5.0.0.93`) · NumPy 2.4/2.5 · FastAPI ·
 Uvicorn · pytest · AWS SAM (`template.yaml`) · AWS Lambda container base image
-(`Dockerfile` builds and runs locally on `public.ecr.aws/lambda/python:3.12`; no AWS account)
+(`Dockerfile` builds on `public.ecr.aws/lambda/python:3.12`)
 
 ## Deployment status
 
 `template.yaml` is an AWS SAM template with the Lambda function (`lambda_handler.handler`,
 python3.12, 2048 MB, 30 s), an HTTP API `POST /inspect`, and an S3 `.png` upload trigger.
-**No cloud deployment was made.** No AWS credentials were available, so no bucket,
-function, API Gateway or CloudFormation stack exists, and there is no public demo URL.
+**Live deployment:** Lambda `fieldlens` (container image, 2048 MB, 60 s) in eu-north-1 behind
+API Gateway HTTP API `873vdlij6g`. Public demo: https://873vdlij6g.execute-api.eu-north-1.amazonaws.com/
+
 `scripts/deploy_aws.sh` refuses to run without credentials instead of pretending to
 deploy.
 
@@ -185,7 +186,7 @@ python3 -m fieldlens benchmark --n 40
 # service + web inspector (the page offers "Inspect a sample plate" — no file needed)
 python3 -m fieldlens serve --port 8099
 curl -X POST --data-binary @samples/images/plate_0003_seed7403.png \
-     -H 'Content-Type: image/png' http://127.0.0.1:8099/inspect
+     -H 'Content-Type: image/png' http://127.0.0.1:8099/api/inspect
 
 # tests
 python3 -m pytest tests -q
