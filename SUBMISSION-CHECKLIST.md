@@ -4,12 +4,12 @@ Deadline: **2026-10-27**
 
 | Pozycja | Status | Dowód / uwaga |
 |---|---|---|
-| Kod i testy | DONE | exit 0, brak linii podsumowania (wtyczka pytest) |
+| Kod i testy | DONE | 60 passed, 1 warning in 35.89s |
 | Demo end-to-end | DONE | EVIDENCE.md |
 | Opis zgłoszenia | DONE | DEVPOST_DRAFT.md |
 | Licencja MIT w repo | DONE | LICENSE |
 | Architektura | DONE | ARCHITECTURE.md |
-| Tech sponsora | DONE (offline) | OpenCV 5.0.0 (pin `==5.0.0.93`) + SAM template (nie wdrożony) |
+| Tech sponsora | DONE (offline) | OpenCV 4.13 (plan migracji do 5) + AWS Lambda handler |
 | Repo publiczne | DONE | https://github.com/aigon-x/fieldlens.git |
 | Demo publiczne (URL) | BLOKADA: zgoda Suwerena | wymaga wdrożenia |
 | Wideo (<3 min) | BRAK | do nagrania po decyzji Suwerena |
