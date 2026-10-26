@@ -191,3 +191,96 @@ curl -X POST --data-binary @samples/images/plate_0003_seed7403.png \
 # tests
 python3 -m pytest tests -q
 ```
+
+---
+
+---
+
+## Target users
+
+Small and mid-size machine shops, sheet-metal and machining cells, and quality
+inspectors who have **no labelled defect dataset** and no GPU on the line. The
+operator gets a JSON report plus an annotated PNG in 106-222 ms on a CPU that is
+already sitting next to the conveyor — no cloud round-trip, no model to train,
+no licence per part number.
+
+## Team
+
+**Team name:** AIGON-X
+
+**Jakub Śniegocki** — founder, SZAMANI AI sp. z o.o. (KRS 0001192102). Built the
+matched-filter engine, the deterministic synthetic benchmark, the AWS Lambda
+deployment, the active-perception loop and the MCP server behind this submission.
+Prior hackathon work: Amazon Developer Hackathon "Build, Ship, Shape" 2026 —
+project **AIGON PROOF**, submitted entry 1248936 (track Alexa+); OpenCV AI
+Competition 2026 — this submission.
+
+## COOL path / Agentic Vision path — **implemented, not planned**
+
+COOL: **no** — the engine is the classical OpenCV 5 toolbox
+(`opencv-python-headless==5.0.0.93`), deliberately: the competition asks for real
+OpenCV use and the target user has no training data.
+
+**Agentic Vision: YES, shipped in the repository.**
+
+| artefact | what it does |
+|---|---|
+| `fieldlens/agent.py` | active-perception loop: inspect → read channel mix + contrast in noise units → decide → tune thresholds → re-inspect (bounded, monotone), or `request_rescan` when the image is not decidable |
+| `POST /agent/inspect` | the loop over HTTP; response carries `agent.decisions[]` (every step, thresholds, reason) and `agent.summary` |
+| `fieldlens_mcp.py` | MCP server over stdio (JSON-RPC 2.0, **zero dependencies**): `inspect`, `tune(channel, factor)`, `explain(region)`, `request_rescan(reason)`, `agent_inspect` |
+| `tests/test_agent.py` | 7 regression tests asserting the *policy*: sensitivity raise on 0 defects, rescan on undecidable input, out-of-domain rejection, bounded loop, every decision has a reason + thresholds |
+
+Measured on the shipped code (clean plate, no defects):
+
+```
+i1 inspect  -> 0 hits  (raise sensitivity x0.85, 0 defects at baseline)
+i2 inspect  -> 0 hits  (stop: stable read)
+i3 request_rescan      (no defect above the reporting floor after sensitivity raise)
+outcome: rescan_needed        iterations: 2   rescans: 1
+```
+
+Measured on a plate with two defects (`POST /agent/inspect`): HTTP 200,
+`engine: opencv-matched-filter + active-perception`, `agent.outcome: decided`,
+`trail: i1 inspect -> 2 hits (stop: stable read)`.
+
+**Why this is active perception and not a retry loop:** every decision carries a
+machine-readable reason and thresholds; the loop is bounded and monotone (one
+sensitivity raise, one specificity raise); an iteration is kept only if it does
+not lose detections; and **"not decidable" is a first-class outcome** — the
+system asks for a rescan instead of guessing. The benchmark stays the objective
+function, so an agent iteration can be scored, not just demonstrated.
+
+## AWS architecture
+
+```
+                 +------------------------------+
+ client / judge  |  API Gateway HTTP API        |
+ (browser, curl) |  873vdlij6g.execute-api...   |
+                 +--------------+---------------+
+                                | POST /inspect  POST /agent/inspect
+                 +--------------v---------------+
+                 |  Lambda `fieldlens`          |
+                 |  container, 2048 MB, 60 s    |
+                 |  eu-north-1  (FastAPI/Mangum)|
+                 +--------------+---------------+
+                                |
+                 +--------------v---------------+
+                 |  FieldLens core              |
+                 |  preprocess -> 5-channel     |
+                 |  matched filters -> z-gating |
+                 |  -> components -> JSON + PNG |
+                 +--------------+---------------+
+                                |
+                 +--------------v---------------+
+                 |  S3 `.png` upload trigger    |
+                 +------------------------------+
+```
+
+`template.yaml` is a SAM template (function + HTTP API + S3 trigger);
+`Dockerfile` builds on `public.ecr.aws/lambda/python:3.12`.
+
+## Architecture diagram (engine)
+
+See `ARCHITECTURE.md` for the full engine diagram (imageio -> preprocess -> filter
+bank -> z-gating -> morphology -> components -> labels -> NMS -> JSON/PNG/mask) and
+for the rejected designs with their measured costs.
