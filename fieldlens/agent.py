@@ -8,7 +8,11 @@ adjusted thresholds or refuse to guess and ask for a rescan.
 Design rules (why this is active perception and not a retry loop):
   * every decision has a machine-readable reason and is logged;
   * the loop is bounded (MAX_ITERS) and monotone (sensitivity once, specificity once);
-  * an iteration is kept only if it does not lose detections it already had;
+  * **a tuned iteration is accepted only if its detections carry strong evidence**
+    (>= MIN_EVIDENCE_ACCEPT x the channel threshold). This is what stops the
+    sensitivity raise from buying false positives: in the shipped benchmark a
+    blind sensitivity raise cost -0.0125 F1 at IoU 0.25 (precision 0.781 -> 0.758,
+    recall unchanged), so the loop now keeps only high-evidence detections;
   * "not decidable" is a valid outcome -> `request_rescan`, never a silent guess.
 """
 
@@ -27,6 +31,10 @@ SENSITIVITY_STEP = 0.85  # lower thresholds -> catch faint defects
 SPECIFICITY_STEP = 1.15  # higher thresholds -> suppress texture false positives
 MANY_HITS = 8
 LOW_CONTRAST = 2.0  # in noise units; below the reporting floor
+# A detection accepted after tuning must sit clearly above the noise floor.
+# `score` is the peak evidence in "just at the channel threshold" units, so 2.0
+# means "twice the threshold" -- a real defect, not texture.
+MIN_EVIDENCE_ACCEPT = 2.0
 
 
 def _scale(p: Params, k: float) -> Params:
@@ -62,6 +70,15 @@ def _kinds(res: InspectionResult) -> dict[str, int]:
     return out
 
 
+def _strong_only(res: InspectionResult, floor: float = MIN_EVIDENCE_ACCEPT) -> InspectionResult:
+    """Keep only detections whose peak evidence clears the acceptance floor."""
+    kept = [d for d in res.defects if d.score >= floor]
+    if len(kept) == len(res.defects):
+        return res
+    res.defects = kept
+    return res
+
+
 def inspect_adaptive(
     bgr: np.ndarray,
     base: Params = DEFAULT_PARAMS,
@@ -91,6 +108,19 @@ def inspect_adaptive(
 
     for i in range(1, max_iters + 1):
         res = inspect_array(bgr, params)
+        # A tuned read is filtered: only high-evidence detections survive, so the
+        # sensitivity raise cannot pay for itself with texture false positives.
+        if i > 1:
+            before = len(res.defects)
+            res = _strong_only(res)
+            if before != len(res.defects):
+                decisions.append({
+                    "iter": i,
+                    "action": "filter_evidence",
+                    "reason": f"dropped {before - len(res.defects)} detections below evidence {MIN_EVIDENCE_ACCEPT}",
+                    "count": len(res.defects),
+                    "thresholds": _thresholds(params),
+                })
         n = len(res.defects)
         mc = _mean_contrast(res)
         mean_evidence = (sum(d.score for d in res.defects) / n) if n else 0.0
