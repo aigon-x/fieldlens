@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from . import __version__
+from .agent import inspect_adaptive, summarize
 from .annotate import annotate
 from .detect import DEFAULT_PARAMS, Params, inspect_array
 from .imageio import ImageDecodeError, decode_base64, decode_image, encode_png
@@ -102,6 +103,20 @@ def create_app() -> FastAPI:
         payload["version"] = __version__
         if options.get("include_mask") and result.mask is not None:
             payload["mask_png_b64"] = base64.b64encode(encode_png(result.mask)).decode("ascii")
+        if options.get("include_annotated"):
+            payload["annotated_png_b64"] = base64.b64encode(encode_png(annotate(img, result))).decode("ascii")
+        return JSONResponse(payload)
+
+    @app.post("/agent/inspect")
+    async def agent_inspect(request: Request) -> JSONResponse:
+        """Active-perception loop: inspect -> decide -> tune -> re-inspect, with a decision log."""
+        img, options = await _load(request)
+        result, decisions, outcome = inspect_adaptive(img, _params(options))
+        payload = result.to_dict()
+        payload["engine"] = "opencv-matched-filter + active-perception"
+        payload["version"] = __version__
+        payload["agent"] = {"outcome": outcome, "decisions": decisions,
+                            "summary": summarize(decisions, outcome)}
         if options.get("include_annotated"):
             payload["annotated_png_b64"] = base64.b64encode(encode_png(annotate(img, result))).decode("ascii")
         return JSONResponse(payload)
