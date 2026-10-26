@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import cv2
+
 import base64
 import json
 from typing import Any
@@ -91,6 +93,7 @@ def create_app() -> FastAPI:
             "status": "ok",
             "version": __version__,
             "engine": "opencv-matched-filter",
+            "opencv_version": cv2.__version__,
             "defaults": {"max_dim": DEFAULT_PARAMS.max_dim, "line_angles": DEFAULT_PARAMS.line_angles},
         }
 
